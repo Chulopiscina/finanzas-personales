@@ -13,6 +13,23 @@ type ImportResult = {
   createdAt: string;
 };
 
+type ImportResponse = {
+  import?: ImportResult;
+  error?: string;
+};
+
+function parseImportResponse(text: string): ImportResponse {
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as ImportResponse;
+  } catch {
+    return { error: "El servidor devolvio una respuesta inesperada." };
+  }
+}
+
 export function UploadDropzone() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -27,20 +44,43 @@ export function UploadDropzone() {
 
     const formData = new FormData();
     formData.append("file", file);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 60000);
 
-    const response = await fetch("/api/imports", {
-      method: "POST",
-      body: formData
-    });
-    const payload = await response.json();
-    setLoading(false);
+    try {
+      const response = await fetch("/api/imports", {
+        method: "POST",
+        body: formData,
+        signal: controller.signal
+      });
+      const text = await response.text();
+      const payload = parseImportResponse(text);
 
-    if (!response.ok) {
-      setError(payload.error ?? "No se pudo importar el archivo.");
-      return;
+      if (!response.ok) {
+        setError(payload.error ?? "No se pudo importar el archivo.");
+        return;
+      }
+
+      if (!payload.import) {
+        setError(payload.error ?? "El servidor no devolvio el resultado de la importacion.");
+        return;
+      }
+
+      setResult(payload.import);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setError("La importacion esta tardando demasiado. Prueba otra vez o sube un PDF mas pequeno.");
+        return;
+      }
+
+      setError(error instanceof Error ? error.message : "No se pudo importar el archivo.");
+    } finally {
+      window.clearTimeout(timeout);
+      setLoading(false);
+      if (inputRef.current) {
+        inputRef.current.value = "";
+      }
     }
-
-    setResult(payload.import);
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {

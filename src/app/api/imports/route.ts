@@ -9,6 +9,7 @@ import { recalculateMonthlySummaries } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const categoryStyle: Record<string, { color: string; icon: string }> = {
   Alimentación: { color: "#22c55e", icon: "utensils" },

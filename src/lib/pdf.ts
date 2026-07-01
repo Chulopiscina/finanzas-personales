@@ -1,7 +1,14 @@
 import { PDFParse } from "pdf-parse";
 import { classify, hashValue, parseSpanishAmount, parseSpanishDate, type ParsedMovement } from "@/lib/csv";
 
-const datePattern = /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/;
+type PdfStatementContext = {
+  year: number | null;
+  statementMonth: number | null;
+};
+
+const fullDatePattern = /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/;
+const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
+const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
 const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
 
 function normalizePdfText(text: string) {
@@ -9,9 +16,19 @@ function normalizePdfText(text: string) {
     .replace(/\u00a0/g, " ")
     .replace(/\r/g, "\n")
     .replace(/\s+(?=\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b)/g, "\n")
+    .replace(/\s+(?=\d{1,2}[/-]\d{1,2}\s+\d{1,2}[/-]\d{1,2}\b)/g, "\n")
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
+}
+
+function isMovementStart(line: string) {
+  if (shortDateRowPattern.test(line)) {
+    return true;
+  }
+
+  const fullDateAtStart = line.match(fullDateAtStartPattern);
+  return Boolean(fullDateAtStart && line.slice(fullDateAtStart[0].length).trim().length > 0);
 }
 
 function buildRecords(lines: string[]) {
@@ -19,7 +36,7 @@ function buildRecords(lines: string[]) {
   let current = "";
 
   for (const line of lines) {
-    if (datePattern.test(line)) {
+    if (isMovementStart(line)) {
       if (current) {
         records.push(current);
       }
@@ -39,18 +56,97 @@ function buildRecords(lines: string[]) {
   return records;
 }
 
-function parsePdfRecord(record: string, index: number): ParsedMovement | null {
-  const dateMatch = record.match(datePattern);
-  if (!dateMatch || dateMatch.index === undefined) {
+function getStatementContext(text: string): PdfStatementContext {
+  const fullDates = [...text.matchAll(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g)]
+    .map((match) => {
+      const day = Number(match[1]);
+      const month = Number(match[2]);
+      const rawYear = match[3];
+      const year = Number(rawYear.length === 2 ? `20${rawYear}` : rawYear);
+      const date = new Date(Date.UTC(year, month - 1, day));
+
+      return {
+        day,
+        month,
+        year,
+        valid:
+          year >= 2000 &&
+          month >= 1 &&
+          month <= 12 &&
+          day >= 1 &&
+          day <= 31 &&
+          date.getUTCFullYear() === year &&
+          date.getUTCMonth() === month - 1 &&
+          date.getUTCDate() === day
+      };
+    })
+    .filter((date) => date.valid);
+
+  const firstDate = fullDates[0];
+  if (firstDate) {
+    return { year: firstDate.year, statementMonth: firstDate.month };
+  }
+
+  const yearMatch = text.match(/\b(20\d{2})\b/);
+  return yearMatch ? { year: Number(yearMatch[1]), statementMonth: null } : { year: null, statementMonth: null };
+}
+
+function inferYear(month: number, context: PdfStatementContext) {
+  if (!context.year) {
     return null;
   }
 
-  let rest = record.slice(dateMatch.index + dateMatch[0].length).trim();
-  const secondDateMatch = rest.match(datePattern);
-  if (secondDateMatch?.index === 0) {
-    rest = rest.slice(secondDateMatch[0].length).trim();
+  if (context.statementMonth !== null && context.statementMonth <= 2 && month >= 11) {
+    return context.year - 1;
   }
 
+  return context.year;
+}
+
+function buildDate(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    throw new Error(`Fecha invalida en el PDF: ${day}/${month}/${year}`);
+  }
+
+  return date;
+}
+
+function parsePdfDate(record: string, context: PdfStatementContext) {
+  const shortRow = record.match(shortDateRowPattern);
+  if (shortRow) {
+    const day = Number(shortRow[1]);
+    const month = Number(shortRow[2]);
+    const year = inferYear(month, context);
+
+    if (!year) {
+      throw new Error("No he podido detectar el ano del extracto PDF.");
+    }
+
+    return {
+      date: buildDate(year, month, day),
+      rest: record.slice(shortRow[0].length).trim()
+    };
+  }
+
+  const fullDateMatch = record.match(fullDatePattern);
+  if (!fullDateMatch || fullDateMatch.index === undefined) {
+    return null;
+  }
+
+  let rest = record.slice(fullDateMatch.index + fullDateMatch[0].length).trim();
+  rest = rest.replace(/^\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\s+/, "").trim();
+
+  return { date: parseSpanishDate(fullDateMatch[0]), rest };
+}
+
+function parsePdfRecord(record: string, index: number, context: PdfStatementContext): ParsedMovement | null {
+  const parsedDate = parsePdfDate(record, context);
+  if (!parsedDate) {
+    return null;
+  }
+
+  const { date, rest } = parsedDate;
   const moneyMatches = [...rest.matchAll(moneyPattern)];
   if (moneyMatches.length === 0) {
     return null;
@@ -68,7 +164,6 @@ function parsePdfRecord(record: string, index: number): ParsedMovement | null {
     return null;
   }
 
-  const date = parseSpanishDate(dateMatch[0]);
   const amount = parseSpanishAmount(amountMatch[0]);
   const balance = balanceMatch ? parseSpanishAmount(balanceMatch[0]) : null;
 
@@ -119,9 +214,10 @@ export async function parseBBVAPdf(buffer: Buffer) {
     throw new Error("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
   }
 
+  const context = getStatementContext(text);
   const records = buildRecords(lines);
   const movements = records
-    .map((record, index) => parsePdfRecord(record, index))
+    .map((record, index) => parsePdfRecord(record, index, context))
     .filter((movement): movement is ParsedMovement => movement !== null);
 
   if (movements.length === 0) {
