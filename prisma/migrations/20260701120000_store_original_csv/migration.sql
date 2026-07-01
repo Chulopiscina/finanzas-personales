@@ -1,0 +1,4 @@
+ALTER TABLE "ImportHistory"
+ADD COLUMN "fileSize" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "mimeType" TEXT,
+ADD COLUMN "fileContent" TEXT;

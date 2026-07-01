@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum ImportStatus {
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id             String           @id @default(cuid())
+  name           String
+  email          String           @unique
+  passwordHash   String
+  role           Role             @default(USER)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  lastLoginAt    DateTime?
+  transactions   Transaction[]
+  monthlySummaries MonthlySummary[]
+  imports        ImportHistory[]
+  sessions       Session[]
+
+  @@index([role])
+  @@index([lastLoginAt])
+}
+
+model Category {
+  id           String        @id @default(cuid())
+  name         String
+  color        String
+  icon         String
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([name])
+  @@index([name])
+}
+
+model Transaction {
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId      String?
+  category        Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  importHistoryId String?
+  importHistory   ImportHistory?  @relation(fields: [importHistoryId], references: [id], onDelete: SetNull)
+  date            DateTime
+  concept         String
+  amount          Decimal         @db.Decimal(12, 2)
+  balance         Decimal?        @db.Decimal(12, 2)
+  type            TransactionType
+  sourceHash      String
+  raw             Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([userId, sourceHash])
+  @@index([userId, date])
+  @@index([categoryId])
+  @@index([type])
+}
+
+model MonthlySummary {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  month             DateTime
+  income            Decimal  @db.Decimal(12, 2)
+  expenses          Decimal  @db.Decimal(12, 2)
+  savings           Decimal  @db.Decimal(12, 2)
+  transactionCount  Int
+  topCategory       String?
+  categoryBreakdown Json
+  insights          Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, month])
+  @@index([userId, month])
+}
+
+model ImportHistory {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileHash      String
+  fileSize      Int          @default(0)
+  mimeType      String?
+  fileContent   String?      @db.Text
+  rowCount      Int
+  insertedRows  Int
+  duplicateRows Int
+  status        ImportStatus
+  errorMessage  String?
+  createdAt     DateTime     @default(now())
+  transactions  Transaction[]
+
+  @@index([userId, createdAt])
+  @@index([fileHash])
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}

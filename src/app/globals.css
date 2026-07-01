@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 20% 98%;
+  --foreground: 224 20% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 224 20% 12%;
+  --muted: 210 16% 92%;
+  --muted-foreground: 220 10% 42%;
+  --border: 214 16% 86%;
+  --accent: 173 70% 38%;
+  --accent-foreground: 0 0% 100%;
+  --success: 145 63% 42%;
+  --warning: 42 90% 52%;
+  --danger: 0 75% 58%;
+}
+
+.dark {
+  --background: 225 18% 8%;
+  --foreground: 210 24% 94%;
+  --card: 224 18% 11%;
+  --card-foreground: 210 24% 94%;
+  --muted: 224 14% 17%;
+  --muted-foreground: 215 13% 66%;
+  --border: 224 14% 20%;
+  --accent: 173 72% 42%;
+  --accent-foreground: 180 22% 8%;
+  --success: 145 63% 46%;
+  --warning: 42 90% 56%;
+  --danger: 0 75% 62%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: hsl(var(--background));
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(20, 184, 166, 0.08), transparent 320px),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.25);
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: hsl(var(--muted-foreground));
+}
+
+.recharts-default-tooltip {
+  border-radius: 8px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+}
