@@ -126,3 +126,45 @@ npm run prisma:deploy    # migración producción
 npm run db:seed          # admin inicial + categorías
 npm run prisma:studio    # interfaz Prisma
 ```
+
+
+## Despliegue automatico GitHub + Vercel
+
+El repositorio principal es:
+
+`https://github.com/Chulopiscina/finanzas-personales.git`
+
+Para que cada cambio se publique automaticamente:
+
+1. Entra en Vercel y crea un proyecto nuevo importando ese repositorio de GitHub.
+2. Framework preset: `Next.js`.
+3. Production branch: `main`.
+4. Build command: `npm run build`.
+5. Install command: `npm install`.
+6. Output directory: dejar vacio, Vercel lo detecta.
+7. Anade las variables de entorno de produccion.
+
+Variables necesarias en Vercel:
+
+```env
+DATABASE_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+DIRECT_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+AUTH_SECRET="un-secreto-largo-y-aleatorio-de-32-caracteres-minimo"
+NEXT_PUBLIC_APP_URL="https://tu-dominio-de-vercel.vercel.app"
+INITIAL_ADMIN_EMAIL="oriolcasaponsaprat@gmail.com"
+INITIAL_ADMIN_PASSWORD="Pelota.1"
+INITIAL_ADMIN_NAME="Oriol Casa Ponsa Prat"
+```
+
+Despues de configurar las variables, aplica migraciones y seed contra Supabase desde local usando esas mismas variables:
+
+```bash
+npm run prisma:deploy
+npm run db:seed
+```
+
+Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
+
+## CSV originales
+
+Cada CSV subido se guarda en PostgreSQL dentro de `ImportHistory`, asociado al `userId` propietario. El usuario puede ver sus CSV guardados en Perfil y descargarlos. Un usuario normal solo puede descargar sus propios CSV; un administrador puede acceder a todos.
