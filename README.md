@@ -139,7 +139,7 @@ Para que cada cambio se publique automaticamente:
 1. Entra en Vercel y crea un proyecto nuevo importando ese repositorio de GitHub.
 2. Framework preset: `Next.js`.
 3. Production branch: `main`.
-4. Build command: `npm run build`.
+4. Build command: `npm run vercel-build`.
 5. Install command: `npm install`.
 6. Output directory: dejar vacio, Vercel lo detecta.
 7. Anade las variables de entorno de produccion.
@@ -147,8 +147,8 @@ Para que cada cambio se publique automaticamente:
 Variables necesarias en Vercel:
 
 ```env
-DATABASE_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
-DIRECT_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+DATABASE_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true&schema=app"
+DIRECT_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?schema=app"
 AUTH_SECRET="un-secreto-largo-y-aleatorio-de-32-caracteres-minimo"
 NEXT_PUBLIC_APP_URL="https://tu-dominio-de-vercel.vercel.app"
 INITIAL_ADMIN_EMAIL="oriolcasaponsaprat@gmail.com"
@@ -164,6 +164,8 @@ npm run db:seed
 ```
 
 Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
+
+La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` aplica migraciones antes de compilar, asi los cambios de Prisma se despliegan junto con el codigo.
 
 ## CSV originales
 
