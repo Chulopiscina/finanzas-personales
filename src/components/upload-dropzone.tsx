@@ -76,14 +76,14 @@ export function UploadDropzone() {
         <div className="flex h-14 w-14 items-center justify-center rounded-md bg-muted text-accent">
           {loading ? <Loader2 className="h-7 w-7 animate-spin" /> : <UploadCloud className="h-7 w-7" />}
         </div>
-        <h2 className="mt-5 text-lg font-semibold text-card-foreground">Importar CSV BBVA</h2>
+        <h2 className="mt-5 text-lg font-semibold text-card-foreground">Importar CSV o PDF BBVA</h2>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           Arrastra el archivo o selecciónalo manualmente. Se leerán fecha, concepto, importe y saldo.
         </p>
-        <input ref={inputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onChange} />
+        <input ref={inputRef} type="file" accept=".csv,.pdf,text/csv,application/pdf" className="hidden" onChange={onChange} />
         <Button type="button" className="mt-6" onClick={() => inputRef.current?.click()} disabled={loading}>
           <FileUp className="h-4 w-4" />
-          Seleccionar CSV
+          Seleccionar archivo
         </Button>
       </div>
 

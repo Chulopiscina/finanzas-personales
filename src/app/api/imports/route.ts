@@ -1,10 +1,14 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { ImportStatus } from "@prisma/client";
 import { jsonError } from "@/lib/api";
-import { csvFileHash, parseBBVACsv } from "@/lib/csv";
+import { parseBBVACsv } from "@/lib/csv";
+import { parseBBVAPdf } from "@/lib/pdf";
 import { requireUser } from "@/lib/auth";
 import { recalculateMonthlySummaries } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
 
 const categoryStyle: Record<string, { color: string; icon: string }> = {
   Alimentación: { color: "#22c55e", icon: "utensils" },
@@ -30,23 +34,29 @@ export async function POST(request: NextRequest) {
     const file = formData.get("file");
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Debes subir un archivo CSV." }, { status: 400 });
+      return NextResponse.json({ error: "Debes subir un archivo CSV o PDF." }, { status: 400 });
     }
 
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      return NextResponse.json({ error: "El archivo debe tener extensión .csv." }, { status: 400 });
+    const lowerName = file.name.toLowerCase();
+    const isCsv = lowerName.endsWith(".csv") || file.type === "text/csv";
+    const isPdf = lowerName.endsWith(".pdf") || file.type === "application/pdf";
+
+    if (!isCsv && !isPdf) {
+      return NextResponse.json({ error: "El archivo debe ser CSV o PDF." }, { status: 400 });
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: "El CSV no puede superar los 5 MB." }, { status: 400 });
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json({ error: "El archivo no puede superar los 10 MB." }, { status: 400 });
     }
 
-    const text = await file.text();
-    const movements = parseBBVACsv(text);
-    const fileHash = csvFileHash(text);
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
+    const text = isCsv ? fileBuffer.toString("utf8") : null;
+    const storedContent = isCsv ? text ?? "" : fileBuffer.toString("base64");
+    const movements = isCsv ? parseBBVACsv(text ?? "") : await parseBBVAPdf(fileBuffer);
 
     if (movements.length === 0) {
-      return NextResponse.json({ error: "El CSV no contiene movimientos." }, { status: 400 });
+      return NextResponse.json({ error: "El archivo no contiene movimientos." }, { status: 400 });
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -72,8 +82,8 @@ export async function POST(request: NextRequest) {
           fileName: file.name,
           fileHash,
           fileSize: file.size,
-          mimeType: file.type || "text/csv",
-          fileContent: text,
+          mimeType: file.type || (isPdf ? "application/pdf" : "text/csv"),
+          fileContent: storedContent,
           rowCount: movements.length,
           insertedRows: 0,
           duplicateRows: 0,
@@ -121,6 +131,6 @@ export async function POST(request: NextRequest) {
       }
     });
   } catch (error) {
-    return jsonError(error, "No se pudo importar el CSV.");
+    return jsonError(error, "No se pudo importar el archivo.");
   }
 }

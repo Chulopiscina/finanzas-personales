@@ -49,26 +49,38 @@ function pick(row: Record<string, unknown>, names: string[]) {
   return "";
 }
 
-function parseSpanishAmount(value: string) {
-  const cleaned = value
+export function parseSpanishAmount(value: string) {
+  let cleaned = value
     .replace(/\s/g, "")
-    .replace(/€/g, "")
     .replace(/"/g, "")
-    .replace(/\+/g, "");
+    .replace(/\+/g, "")
+    .replace(/[^\d,.-]/g, "");
 
   if (!cleaned) {
     return NaN;
   }
 
-  const normalized =
-    cleaned.includes(",") && cleaned.includes(".")
+  const negative = cleaned.startsWith("-") || cleaned.endsWith("-");
+  cleaned = cleaned.replace(/-/g, "");
+
+  const commaIndex = cleaned.lastIndexOf(",");
+  const dotIndex = cleaned.lastIndexOf(".");
+  let normalized = cleaned;
+
+  if (commaIndex !== -1 && dotIndex !== -1) {
+    normalized = commaIndex > dotIndex
       ? cleaned.replace(/\./g, "").replace(",", ".")
-      : cleaned.replace(",", ".");
+      : cleaned.replace(/,/g, "");
+  } else if (commaIndex !== -1) {
+    normalized = cleaned.replace(",", ".");
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(cleaned)) {
+    normalized = cleaned.replace(/\./g, "");
+  }
 
-  return Number(normalized);
+  const amount = Number(normalized);
+  return negative ? -amount : amount;
 }
-
-function parseSpanishDate(value: string) {
+export function parseSpanishDate(value: string) {
   const cleaned = value.trim();
   const european = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (european) {
@@ -86,11 +98,11 @@ function parseSpanishDate(value: string) {
   throw new Error(`Fecha inválida: ${value}`);
 }
 
-function hashValue(value: string) {
+export function hashValue(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function classify(concept: string, amount: number) {
+export function classify(concept: string, amount: number) {
   const transferRule = categoryRules.find(([name]) => name === "Transferencias");
   const payrollRule = categoryRules.find(([name]) => name === "Nómina");
 

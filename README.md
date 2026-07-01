@@ -90,9 +90,9 @@ npm run prisma:deploy
 npm run db:seed
 ```
 
-## CSV BBVA
+## CSV y PDF BBVA
 
-El importador busca columnas habituales:
+El importador acepta CSV con columnas habituales:
 
 - `Fecha`
 - `Concepto`
@@ -102,6 +102,8 @@ El importador busca columnas habituales:
 También acepta variantes comunes como `Descripción`, `Movimiento`, `Cantidad` o `Saldo disponible`.
 
 Los duplicados se evitan con una huella por usuario basada en fecha, concepto, importe y saldo.
+
+Los PDF se procesan extrayendo texto del documento. Si el PDF es una imagen escaneada, sera necesario OCR antes de importarlo.
 
 ## Seguridad
 
@@ -167,6 +169,6 @@ Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
 
 La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` aplica migraciones antes de compilar, asi los cambios de Prisma se despliegan junto con el codigo.
 
-## CSV originales
+## Archivos originales
 
-Cada CSV subido se guarda en PostgreSQL dentro de `ImportHistory`, asociado al `userId` propietario. El usuario puede ver sus CSV guardados en Perfil y descargarlos. Un usuario normal solo puede descargar sus propios CSV; un administrador puede acceder a todos.
+Cada CSV o PDF subido se guarda en PostgreSQL dentro de `ImportHistory`, asociado al `userId` propietario. El usuario puede ver sus archivos guardados en Perfil y descargarlos. Un usuario normal solo puede descargar sus propios archivos; un administrador puede acceder a todos.

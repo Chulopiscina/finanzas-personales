@@ -24,6 +24,7 @@
     "lucide-react": "^0.468.0",
     "next": "^15.0.3",
     "papaparse": "^5.4.1",
+    "pdf-parse": "^2.4.5",
     "prisma": "^5.22.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -49,5 +50,8 @@
   },
   "overrides": {
     "postcss": "8.5.10"
+  },
+  "engines": {
+    "node": ">=22.3.0"
   }
 }

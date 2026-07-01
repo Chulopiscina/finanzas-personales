@@ -4,6 +4,14 @@ import { requireUser } from "@/lib/auth";
 import { jsonError } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 
+function downloadBody(fileContent: string, mimeType: string | null) {
+  if (mimeType?.includes("pdf")) {
+    return Buffer.from(fileContent, "base64");
+  }
+
+  return fileContent;
+}
+
 function safeFileName(fileName: string) {
   const cleaned = fileName.replace(/["\\\r\n]/g, "_").trim();
   return cleaned || "movimientos.csv";
@@ -24,14 +32,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     });
 
     if (!importedFile || !importedFile.fileContent) {
-      return NextResponse.json({ error: "CSV no encontrado." }, { status: 404 });
+      return NextResponse.json({ error: "Archivo no encontrado." }, { status: 404 });
     }
 
     if (importedFile.userId !== session.user.id && session.user.role !== Role.ADMIN) {
-      return NextResponse.json({ error: "No puedes descargar este CSV." }, { status: 403 });
+      return NextResponse.json({ error: "No puedes descargar este archivo." }, { status: 403 });
     }
 
-    return new NextResponse(importedFile.fileContent, {
+    return new NextResponse(downloadBody(importedFile.fileContent, importedFile.mimeType), {
       headers: {
         "Content-Type": importedFile.mimeType || "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="${safeFileName(importedFile.fileName)}"`,
@@ -39,6 +47,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       }
     });
   } catch (error) {
-    return jsonError(error, "No se pudo descargar el CSV.");
+    return jsonError(error, "No se pudo descargar el archivo.");
   }
 }
