@@ -10,19 +10,22 @@ const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
 const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
 
-async function ensurePdfDomPolyfills() {
+async function ensurePdfRuntime() {
   const globalWithDom = globalThis as Record<string, unknown>;
 
-  if (globalWithDom.DOMMatrix && globalWithDom.DOMPoint && globalWithDom.DOMRect && globalWithDom.ImageData) {
-    return;
+  if (!globalWithDom.DOMMatrix || !globalWithDom.DOMPoint || !globalWithDom.DOMRect || !globalWithDom.ImageData) {
+    const canvas = await import("@napi-rs/canvas");
+    globalWithDom.DOMMatrix ??= canvas.DOMMatrix;
+    globalWithDom.DOMPoint ??= canvas.DOMPoint;
+    globalWithDom.DOMRect ??= canvas.DOMRect;
+    globalWithDom.ImageData ??= canvas.ImageData;
+    globalWithDom.Path2D ??= canvas.Path2D;
   }
 
-  const canvas = await import("@napi-rs/canvas");
-  globalWithDom.DOMMatrix ??= canvas.DOMMatrix;
-  globalWithDom.DOMPoint ??= canvas.DOMPoint;
-  globalWithDom.DOMRect ??= canvas.DOMRect;
-  globalWithDom.ImageData ??= canvas.ImageData;
-  globalWithDom.Path2D ??= canvas.Path2D;
+  if (!globalWithDom.pdfjsWorker) {
+    const worker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    globalWithDom.pdfjsWorker = { WorkerMessageHandler: worker.WorkerMessageHandler };
+  }
 }
 
 function normalizePdfText(text: string) {
@@ -210,7 +213,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
 }
 
 export async function extractPdfText(buffer: Buffer) {
-  await ensurePdfDomPolyfills();
+  await ensurePdfRuntime();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
 
