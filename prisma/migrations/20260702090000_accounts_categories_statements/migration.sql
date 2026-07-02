@@ -1,9 +1,19 @@
 -- Add account and category management without deleting existing data.
-CREATE TYPE "AccountType" AS ENUM ('BANK', 'SAVINGS', 'CARD', 'CASH', 'INVESTMENT', 'DEBT', 'OTHER');
-CREATE TYPE "CategoryType" AS ENUM ('INCOME', 'EXPENSE', 'SAVINGS', 'TRANSFER', 'OTHER');
+DO $$
+BEGIN
+  CREATE TYPE "AccountType" AS ENUM ('BANK', 'SAVINGS', 'CARD', 'CASH', 'INVESTMENT', 'DEBT', 'OTHER');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  CREATE TYPE "CategoryType" AS ENUM ('INCOME', 'EXPENSE', 'SAVINGS', 'TRANSFER', 'OTHER');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 ALTER TYPE "ImportStatus" ADD VALUE IF NOT EXISTS 'PENDING';
 
-CREATE TABLE "Account" (
+CREATE TABLE IF NOT EXISTS "Account" (
   "id" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "name" TEXT NOT NULL,
@@ -23,28 +33,34 @@ SELECT 'acct_' || md5("id"), "id", 'Cuenta principal', 'BANK', 0, 'EUR', '#14b8a
 FROM "User"
 ON CONFLICT DO NOTHING;
 
-ALTER TABLE "Category" ADD COLUMN "userId" TEXT;
-ALTER TABLE "Category" ADD COLUMN "type" "CategoryType" NOT NULL DEFAULT 'OTHER';
-ALTER TABLE "Category" ADD COLUMN "isArchived" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Category" ADD COLUMN IF NOT EXISTS "userId" TEXT;
+ALTER TABLE "Category" ADD COLUMN IF NOT EXISTS "type" "CategoryType" NOT NULL DEFAULT 'OTHER';
+ALTER TABLE "Category" ADD COLUMN IF NOT EXISTS "isArchived" BOOLEAN NOT NULL DEFAULT false;
 
-UPDATE "Category" SET "name" = 'Alimentación' WHERE "name" IN ('AlimentaciÃ³n', 'Alimentacion');
-UPDATE "Category" SET "name" = 'Nómina' WHERE "name" IN ('NÃ³mina', 'Nomina');
-UPDATE "Category" SET "type" = 'INCOME' WHERE "name" IN ('Nómina');
-UPDATE "Category" SET "type" = 'TRANSFER' WHERE "name" IN ('Transferencias');
-UPDATE "Category" SET "type" = 'EXPENSE' WHERE "name" NOT IN ('Nómina', 'Transferencias');
+DROP INDEX IF EXISTS "Category_name_key";
 
-ALTER TABLE "Transaction" ADD COLUMN "accountId" TEXT;
-ALTER TABLE "Transaction" ADD COLUMN "cleanDescription" TEXT;
-ALTER TABLE "Transaction" ADD COLUMN "rawDescription" TEXT;
+UPDATE "Category"
+SET "name" = U&'Alimentaci\00F3n'
+WHERE "name" IN (U&'Alimentaci\00C3\00B3n', U&'Alimentaci\00C3\0192\00C2\00B3n', 'Alimentacion');
+UPDATE "Category"
+SET "name" = U&'N\00F3mina'
+WHERE "name" IN (U&'N\00C3\00B3mina', U&'N\00C3\0192\00C2\00B3mina', 'Nomina');
+UPDATE "Category" SET "type" = 'INCOME' WHERE "name" = U&'N\00F3mina';
+UPDATE "Category" SET "type" = 'TRANSFER' WHERE "name" = 'Transferencias';
+UPDATE "Category" SET "type" = 'EXPENSE' WHERE "name" NOT IN (U&'N\00F3mina', 'Transferencias');
+
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "accountId" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "cleanDescription" TEXT;
+ALTER TABLE "Transaction" ADD COLUMN IF NOT EXISTS "rawDescription" TEXT;
 UPDATE "Transaction" t
 SET "accountId" = 'acct_' || md5(t."userId"),
     "rawDescription" = COALESCE(t."rawDescription", t."concept")
 WHERE "accountId" IS NULL;
 ALTER TABLE "Transaction" ALTER COLUMN "accountId" SET NOT NULL;
 
-ALTER TABLE "ImportHistory" ADD COLUMN "accountId" TEXT;
-ALTER TABLE "ImportHistory" ADD COLUMN "incomeTotal" DECIMAL(12,2) NOT NULL DEFAULT 0;
-ALTER TABLE "ImportHistory" ADD COLUMN "expenseTotal" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "accountId" TEXT;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "incomeTotal" DECIMAL(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "expenseTotal" DECIMAL(12,2) NOT NULL DEFAULT 0;
 UPDATE "ImportHistory" i SET "accountId" = 'acct_' || md5(i."userId") WHERE "accountId" IS NULL;
 ALTER TABLE "ImportHistory" ALTER COLUMN "accountId" SET NOT NULL;
 
@@ -59,18 +75,40 @@ SET "incomeTotal" = COALESCE((
 ), 0);
 
 DROP INDEX IF EXISTS "Transaction_userId_sourceHash_key";
-DROP INDEX IF EXISTS "Category_name_key";
 
-CREATE UNIQUE INDEX "Account_userId_name_key" ON "Account"("userId", "name");
-CREATE INDEX "Account_userId_isArchived_idx" ON "Account"("userId", "isArchived");
-CREATE INDEX "Category_userId_isArchived_idx" ON "Category"("userId", "isArchived");
-CREATE UNIQUE INDEX "Category_userId_name_key" ON "Category"("userId", "name");
-CREATE INDEX "Transaction_accountId_date_idx" ON "Transaction"("accountId", "date");
-CREATE INDEX "Transaction_importHistoryId_idx" ON "Transaction"("importHistoryId");
-CREATE UNIQUE INDEX "Transaction_userId_accountId_sourceHash_key" ON "Transaction"("userId", "accountId", "sourceHash");
-CREATE INDEX "ImportHistory_accountId_createdAt_idx" ON "ImportHistory"("accountId", "createdAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "Account_userId_name_key" ON "Account"("userId", "name");
+CREATE INDEX IF NOT EXISTS "Account_userId_isArchived_idx" ON "Account"("userId", "isArchived");
+CREATE INDEX IF NOT EXISTS "Category_userId_isArchived_idx" ON "Category"("userId", "isArchived");
+CREATE UNIQUE INDEX IF NOT EXISTS "Category_userId_name_key" ON "Category"("userId", "name");
+CREATE INDEX IF NOT EXISTS "Transaction_accountId_date_idx" ON "Transaction"("accountId", "date");
+CREATE INDEX IF NOT EXISTS "Transaction_importHistoryId_idx" ON "Transaction"("importHistoryId");
+CREATE UNIQUE INDEX IF NOT EXISTS "Transaction_userId_accountId_sourceHash_key" ON "Transaction"("userId", "accountId", "sourceHash");
+CREATE INDEX IF NOT EXISTS "ImportHistory_accountId_createdAt_idx" ON "ImportHistory"("accountId", "createdAt");
 
-ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Category" ADD CONSTRAINT "Category_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "ImportHistory" ADD CONSTRAINT "ImportHistory_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Account_userId_fkey') THEN
+    ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Category_userId_fkey') THEN
+    ALTER TABLE "Category" ADD CONSTRAINT "Category_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Transaction_accountId_fkey') THEN
+    ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ImportHistory_accountId_fkey') THEN
+    ALTER TABLE "ImportHistory" ADD CONSTRAINT "ImportHistory_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
