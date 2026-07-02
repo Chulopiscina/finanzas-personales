@@ -10,6 +10,21 @@ const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
 const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
 
+async function ensurePdfDomPolyfills() {
+  const globalWithDom = globalThis as Record<string, unknown>;
+
+  if (globalWithDom.DOMMatrix && globalWithDom.DOMPoint && globalWithDom.DOMRect && globalWithDom.ImageData) {
+    return;
+  }
+
+  const canvas = await import("@napi-rs/canvas");
+  globalWithDom.DOMMatrix ??= canvas.DOMMatrix;
+  globalWithDom.DOMPoint ??= canvas.DOMPoint;
+  globalWithDom.DOMRect ??= canvas.DOMRect;
+  globalWithDom.ImageData ??= canvas.ImageData;
+  globalWithDom.Path2D ??= canvas.Path2D;
+}
+
 function normalizePdfText(text: string) {
   return text
     .replace(/\u00a0/g, " ")
@@ -195,6 +210,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
 }
 
 export async function extractPdfText(buffer: Buffer) {
+  await ensurePdfDomPolyfills();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
 
