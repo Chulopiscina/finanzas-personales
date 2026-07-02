@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { Archive, Plus } from "lucide-react";
+import { Archive, Pencil, Plus, Save, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -18,6 +18,13 @@ type CategoryRow = {
   _count: { transactions: number };
 };
 
+type CategoryForm = {
+  name: string;
+  type: CategoryType;
+  color: string;
+  icon: string;
+};
+
 const categoryTypeLabels: Record<CategoryType, string> = {
   INCOME: "Ingreso",
   EXPENSE: "Gasto",
@@ -26,9 +33,13 @@ const categoryTypeLabels: Record<CategoryType, string> = {
   OTHER: "Otro"
 };
 
+const emptyForm: CategoryForm = { name: "", type: "EXPENSE", color: "#94a3b8", icon: "circle-dot" };
+
 export function CategoriesManager({ initialCategories }: { initialCategories: CategoryRow[] }) {
   const [categories, setCategories] = useState(initialCategories);
-  const [form, setForm] = useState({ name: "", type: "EXPENSE" as CategoryType, color: "#94a3b8", icon: "circle-dot" });
+  const [form, setForm] = useState<CategoryForm>(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<CategoryForm>(emptyForm);
   const [message, setMessage] = useState("");
 
   async function createCategory() {
@@ -44,7 +55,33 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
       return;
     }
     setCategories((current) => [...current, { ...payload.category, _count: { transactions: 0 } }]);
-    setForm({ name: "", type: "EXPENSE", color: "#94a3b8", icon: "circle-dot" });
+    setForm(emptyForm);
+  }
+
+  function startEditing(category: CategoryRow) {
+    if (!category.userId) {
+      setMessage("Las categorías base no se pueden editar desde aquí.");
+      return;
+    }
+    setMessage("");
+    setEditingId(category.id);
+    setEditForm({ name: category.name, type: category.type, color: category.color, icon: category.icon });
+  }
+
+  async function saveCategory(category: CategoryRow) {
+    setMessage("");
+    const response = await fetch(`/api/categories/${category.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editForm)
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setMessage(payload.error ?? "No se pudo editar la categoría.");
+      return;
+    }
+    setCategories((current) => current.map((item) => (item.id === category.id ? { ...item, ...payload.category } : item)));
+    setEditingId(null);
   }
 
   async function archiveCategory(category: CategoryRow) {
@@ -59,6 +96,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
       return;
     }
     setCategories((current) => current.map((item) => (item.id === category.id ? { ...item, ...payload.category } : item)));
+    if (editingId === category.id) setEditingId(null);
   }
 
   return (
@@ -87,7 +125,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
           <p className="text-sm text-muted-foreground">Las categorías con movimientos se archivan en vez de borrarse.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Categoría</th>
@@ -98,25 +136,62 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
               </tr>
             </thead>
             <tbody>
-              {categories.map((category) => (
-                <tr key={category.id} className="border-t border-border">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full" style={{ background: category.color }} />
-                      <span className="font-medium text-card-foreground">{category.name}</span>
-                      {!category.userId ? <span className="text-xs text-muted-foreground">base</span> : null}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{categoryTypeLabels[category.type]}</td>
-                  <td className="px-4 py-3 text-right text-muted-foreground">{category._count.transactions}</td>
-                  <td className="px-4 py-3 text-right text-muted-foreground">{category.isArchived ? "Archivada" : "Activa"}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button type="button" variant="secondary" size="sm" onClick={() => void archiveCategory(category)} disabled={!category.userId || category.isArchived}>
-                      <Archive className="h-4 w-4" /> Archivar
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {categories.map((category) => {
+                const isEditing = editingId === category.id;
+                return (
+                  <tr key={category.id} className="border-t border-border">
+                    <td className="px-4 py-3">
+                      {isEditing ? (
+                        <div className="grid gap-2 md:grid-cols-[1fr_72px_120px]">
+                          <Input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
+                          <Input type="color" value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} />
+                          <Input value={editForm.icon} onChange={(event) => setEditForm({ ...editForm, icon: event.target.value })} />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="h-3 w-3 rounded-full" style={{ background: category.color }} />
+                          <span className="font-medium text-card-foreground">{category.name}</span>
+                          {!category.userId ? <span className="text-xs text-muted-foreground">base</span> : null}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {isEditing ? (
+                        <Select value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value as CategoryType })}>
+                          {Object.entries(categoryTypeLabels).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </Select>
+                      ) : categoryTypeLabels[category.type]}
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground">{category._count.transactions}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground">{category.isArchived ? "Archivada" : "Activa"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        {isEditing ? (
+                          <>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => void saveCategory(category)}>
+                              <Save className="h-4 w-4" /> Guardar
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                              <X className="h-4 w-4" /> Cancelar
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => startEditing(category)} disabled={!category.userId}>
+                              <Pencil className="h-4 w-4" /> Editar
+                            </Button>
+                            <Button type="button" variant="secondary" size="sm" onClick={() => void archiveCategory(category)} disabled={!category.userId || category.isArchived}>
+                              <Archive className="h-4 w-4" /> Archivar
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
