@@ -1,4 +1,3 @@
-import { PDFParse } from "pdf-parse";
 import { classify, hashValue, parseSpanishAmount, parseSpanishDate, type ParsedMovement } from "@/lib/csv";
 
 type PdfStatementContext = {
@@ -196,6 +195,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
 }
 
 export async function extractPdfText(buffer: Buffer) {
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
 
   try {

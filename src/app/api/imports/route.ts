@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { ImportStatus } from "@prisma/client";
 import { jsonError } from "@/lib/api";
 import { parseBBVACsv } from "@/lib/csv";
-import { parseBBVAPdf } from "@/lib/pdf";
 import { requireUser } from "@/lib/auth";
 import { recalculateMonthlySummaries } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
@@ -54,69 +53,67 @@ export async function POST(request: NextRequest) {
     const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
     const text = isCsv ? fileBuffer.toString("utf8") : null;
     const storedContent = isCsv ? text ?? "" : fileBuffer.toString("base64");
-    const movements = isCsv ? parseBBVACsv(text ?? "") : await parseBBVAPdf(fileBuffer);
+    const movements = isCsv
+      ? parseBBVACsv(text ?? "")
+      : await import("@/lib/pdf").then(({ parseBBVAPdf }) => parseBBVAPdf(fileBuffer));
 
     if (movements.length === 0) {
       return NextResponse.json({ error: "El archivo no contiene movimientos." }, { status: 400 });
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      const categoryNames = [...new Set(movements.map((movement) => movement.categoryName))];
-      const categories = await Promise.all(
-        categoryNames.map((name) =>
-          tx.category.upsert({
-            where: { name },
-            create: {
-              name,
-              color: categoryStyle[name]?.color ?? "#94a3b8",
-              icon: categoryStyle[name]?.icon ?? "circle-dot"
-            },
-            update: {}
-          })
-        )
-      );
-      const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
+    const categoryNames = [...new Set(movements.map((movement) => movement.categoryName))];
+    const categories = await Promise.all(
+      categoryNames.map((name) =>
+        prisma.category.upsert({
+          where: { name },
+          create: {
+            name,
+            color: categoryStyle[name]?.color ?? "#94a3b8",
+            icon: categoryStyle[name]?.icon ?? "circle-dot"
+          },
+          update: {}
+        })
+      )
+    );
+    const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
 
-      const history = await tx.importHistory.create({
-        data: {
-          userId: session.user.id,
-          fileName: file.name,
-          fileHash,
-          fileSize: file.size,
-          mimeType: file.type || (isPdf ? "application/pdf" : "text/csv"),
-          fileContent: storedContent,
-          rowCount: movements.length,
-          insertedRows: 0,
-          duplicateRows: 0,
-          status: ImportStatus.COMPLETED
-        }
-      });
+    const history = await prisma.importHistory.create({
+      data: {
+        userId: session.user.id,
+        fileName: file.name,
+        fileHash,
+        fileSize: file.size,
+        mimeType: file.type || (isPdf ? "application/pdf" : "text/csv"),
+        fileContent: storedContent,
+        rowCount: movements.length,
+        insertedRows: 0,
+        duplicateRows: 0,
+        status: ImportStatus.COMPLETED
+      }
+    });
 
-      const created = await tx.transaction.createMany({
-        data: movements.map((movement) => ({
-          userId: session.user.id,
-          categoryId: categoryByName.get(movement.categoryName),
-          importHistoryId: history.id,
-          date: movement.date,
-          concept: movement.concept,
-          amount: movement.amount,
-          balance: movement.balance,
-          type: movement.type,
-          sourceHash: movement.sourceHash,
-          raw: movement.raw
-        })),
-        skipDuplicates: true
-      });
+    const created = await prisma.transaction.createMany({
+      data: movements.map((movement) => ({
+        userId: session.user.id,
+        categoryId: categoryByName.get(movement.categoryName),
+        importHistoryId: history.id,
+        date: movement.date,
+        concept: movement.concept,
+        amount: movement.amount,
+        balance: movement.balance,
+        type: movement.type,
+        sourceHash: movement.sourceHash,
+        raw: movement.raw
+      })),
+      skipDuplicates: true
+    });
 
-      const updatedHistory = await tx.importHistory.update({
-        where: { id: history.id },
-        data: {
-          insertedRows: created.count,
-          duplicateRows: movements.length - created.count
-        }
-      });
-
-      return updatedHistory;
+    const result = await prisma.importHistory.update({
+      where: { id: history.id },
+      data: {
+        insertedRows: created.count,
+        duplicateRows: movements.length - created.count
+      }
     });
 
     await recalculateMonthlySummaries(session.user.id);
