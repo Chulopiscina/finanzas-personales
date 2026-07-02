@@ -41,7 +41,7 @@ export default async function MovementsPage({ searchParams }: Props) {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground">Movimientos</h1>
-        <p className="text-sm text-muted-foreground">Clasificación, cuenta, origen y edición manual</p>
+        <p className="text-sm text-muted-foreground">ClasificaciÃ³n, cuenta, origen y ediciÃ³n manual</p>
       </header>
       <TransactionsTable
         accounts={accounts.map((account) => ({ id: account.id, name: account.name, isArchived: account.isArchived }))}
@@ -60,7 +60,9 @@ export default async function MovementsPage({ searchParams }: Props) {
           category: tx.category,
           accountId: tx.accountId,
           account: tx.account,
-          importHistory: tx.importHistory
+          importHistory: tx.importHistory,
+          isInternalTransfer: tx.isInternalTransfer,
+          internalTransferCounterAccountId: tx.internalTransferCounterAccountId
         }))}
       />
     </div>

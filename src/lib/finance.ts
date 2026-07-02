@@ -40,12 +40,12 @@ function monthLabel(key: string) {
 
 function signedExpense(tx: TransactionWithCategory) {
   const amount = toNumber(tx.amount);
-  return tx.type === TransactionType.EXPENSE ? Math.abs(amount) : 0;
+  return tx.type === TransactionType.EXPENSE && !tx.isInternalTransfer ? Math.abs(amount) : 0;
 }
 
 function signedIncome(tx: TransactionWithCategory) {
   const amount = toNumber(tx.amount);
-  return tx.type === TransactionType.INCOME ? Math.abs(amount) : 0;
+  return tx.type === TransactionType.INCOME && !tx.isInternalTransfer ? Math.abs(amount) : 0;
 }
 
 function buildMonthlyRows(transactions: TransactionWithCategory[]) {
@@ -82,7 +82,7 @@ function buildMonthlyRows(transactions: TransactionWithCategory[]) {
     row.transactions += 1;
 
     if (expense > 0) {
-      const category = tx.category?.name ?? "Sin categoría";
+      const category = tx.category?.name ?? "Sin categor\u00eda";
       row.categories.set(category, (row.categories.get(category) ?? 0) + expense);
     }
 
@@ -101,7 +101,7 @@ function categoryRows(transactions: TransactionWithCategory[]) {
       continue;
     }
 
-    const name = tx.category?.name ?? "Sin categoría";
+    const name = tx.category?.name ?? "Sin categor\u00eda";
     const current = totals.get(name) ?? {
       name,
       value: 0,
@@ -126,7 +126,7 @@ function buildInsights(monthly: ReturnType<typeof buildMonthlyRows>, categoryTot
 
   if (current && previous && previous.savings !== 0) {
     const change = ((current.savings - previous.savings) / Math.abs(previous.savings)) * 100;
-    const direction = change >= 0 ? "más" : "menos";
+    const direction = change >= 0 ? "m\u00e1s" : "menos";
     insights.push(`Has ahorrado un ${Math.abs(change).toFixed(0)} % ${direction} que el mes anterior.`);
   }
 
@@ -150,28 +150,114 @@ function recommendations(categoryTotals: ReturnType<typeof categoryRows>, monthl
   const last = monthly.at(-1);
 
   if (uncategorized > 0) {
-    tips.push(`Tienes ${uncategorized} movimientos sin categoría.`);
+    tips.push(`Tienes ${uncategorized} movimientos sin categor\u00eda.`);
   }
 
   if (topCategory && last && last.expenses > 0 && topCategory.value / last.expenses > 0.35) {
-    tips.push(`Revisa ${topCategory.name}: concentra más del 35 % del gasto del mes.`);
+    tips.push(`Revisa ${topCategory.name}: concentra m\u00e1s del 35 % del gasto del mes.`);
   }
 
   if (last && last.savings < 0) {
-    tips.push("Este mes los gastos superan a los ingresos. Marca un límite semanal para recuperar margen.");
+    tips.push("Este mes los gastos superan a los ingresos. Marca un l\u00edmite semanal para recuperar margen.");
   }
 
   if (last && last.savings > 0) {
-    tips.push("Este mes has ahorrado más de lo que has gastado.");
+    tips.push("Este mes has ahorrado m\u00e1s de lo que has gastado.");
   }
 
   if (tips.length === 0) {
-    tips.push("Mantén una revisión semanal de movimientos para detectar suscripciones o duplicados.");
+    tips.push("Mant\u00e9n una revisi\u00f3n semanal de movimientos para detectar suscripciones o duplicados.");
   }
 
   return tips;
 }
 
+
+const internalTransferConceptPattern = /\b(transferencia|traspaso|transfer|ahorro|trade republic|bbva|ing|movimiento|emitida|recibida|inbound|outbound)\b/i;
+
+function transferCandidate(tx: TransactionWithCategory) {
+  const concept = `${tx.concept} ${tx.cleanDescription ?? ""} ${tx.rawDescription ?? ""} ${tx.account?.name ?? ""}`;
+  return tx.type === TransactionType.TRANSFER || internalTransferConceptPattern.test(concept);
+}
+
+function closeEnoughAmount(left: number, right: number) {
+  const diff = Math.abs(Math.abs(left) - Math.abs(right));
+  return diff <= Math.max(1, Math.abs(left) * 0.001);
+}
+
+function closeEnoughDate(left: Date, right: Date) {
+  const diffDays = Math.abs(left.getTime() - right.getTime()) / 86_400_000;
+  return diffDays <= 7;
+}
+
+export async function detectAndMarkInternalTransfers(userId: string) {
+  const transactions = await prisma.transaction.findMany({
+    where: { userId, isInternalTransfer: false },
+    include: { category: true, account: true },
+    orderBy: [{ date: "asc" }, { createdAt: "asc" }]
+  });
+
+  const candidates = transactions.filter((tx) => transferCandidate(tx) && toNumber(tx.amount) !== 0);
+  const used = new Set<string>();
+  const updates: Array<{ outId: string; inId: string; outAccountId: string; inAccountId: string }> = [];
+
+  for (const outgoing of candidates) {
+    const outAmount = toNumber(outgoing.amount);
+    if (outAmount >= 0 || used.has(outgoing.id)) {
+      continue;
+    }
+
+    const incoming = candidates.find((candidate) => {
+      const inAmount = toNumber(candidate.amount);
+      return (
+        inAmount > 0 &&
+        !used.has(candidate.id) &&
+        candidate.accountId !== outgoing.accountId &&
+        closeEnoughAmount(outAmount, inAmount) &&
+        closeEnoughDate(outgoing.date, candidate.date)
+      );
+    });
+
+    if (!incoming) {
+      continue;
+    }
+
+    used.add(outgoing.id);
+    used.add(incoming.id);
+    updates.push({
+      outId: outgoing.id,
+      inId: incoming.id,
+      outAccountId: outgoing.accountId,
+      inAccountId: incoming.accountId
+    });
+  }
+
+  for (const pair of updates) {
+    const groupId = `internal-${[pair.outId, pair.inId].sort().join("-")}`;
+    await prisma.$transaction([
+      prisma.transaction.update({
+        where: { id: pair.outId },
+        data: {
+          type: TransactionType.TRANSFER,
+          isInternalTransfer: true,
+          internalTransferGroupId: groupId,
+          internalTransferCounterAccountId: pair.inAccountId
+        }
+      }),
+      prisma.transaction.update({
+        where: { id: pair.inId },
+        data: {
+          type: TransactionType.TRANSFER,
+          isInternalTransfer: true,
+          internalTransferGroupId: groupId,
+          internalTransferCounterAccountId: pair.outAccountId
+        }
+      })
+    ]);
+  }
+
+  return updates.length;
+}
 export async function ensureDefaultAccount(userId: string) {
   const existing = await prisma.account.findFirst({ where: { userId }, orderBy: { createdAt: "asc" } });
   if (existing) {
@@ -203,6 +289,7 @@ function accountBalance(account: Account, transactions: TransactionWithCategory[
 
 export async function getDashboardData(userId: string, accountId?: string | null) {
   await ensureDefaultAccount(userId);
+  await detectAndMarkInternalTransfers(userId);
 
   const accounts = await prisma.account.findMany({
     where: { userId },
@@ -296,13 +383,15 @@ export async function getDashboardData(userId: string, accountId?: string | null
       concept: tx.cleanDescription || tx.concept,
       amount: toNumber(tx.amount),
       type: tx.type,
-      category: tx.category?.name ?? "Sin categoría",
+      category: tx.category?.name ?? "Sin categor\u00eda",
       account: tx.account?.name ?? "Cuenta"
     }))
   };
 }
 
 export async function recalculateMonthlySummaries(userId: string) {
+  await detectAndMarkInternalTransfers(userId);
+
   const transactions = await prisma.transaction.findMany({
     where: { userId },
     include: { category: true },
@@ -399,16 +488,16 @@ export async function getAdminStats() {
     recentActivity: [
       ...recentImports.map((item) => ({
         id: `import-${item.id}`,
-        type: "Importación",
+        type: "Importaci\u00f3n",
         user: item.user.name,
         detail: `${item.insertedRows} insertados, ${item.duplicateRows} duplicados`,
         date: item.createdAt.toISOString()
       })),
       ...recentSessions.map((item) => ({
         id: `session-${item.id}`,
-        type: "Inicio de sesión",
+        type: "Inicio de sesi\u00f3n",
         user: item.user.name,
-        detail: item.userAgent ?? "Sesión web",
+        detail: item.userAgent ?? "Sesi\u00f3n web",
         date: item.createdAt.toISOString()
       }))
     ]

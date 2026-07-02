@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -25,6 +25,8 @@ type TransactionRow = {
   accountId: string;
   account: Account | null;
   importHistory: ImportOption | null;
+  isInternalTransfer: boolean;
+  internalTransferCounterAccountId: string | null;
 };
 
 type QuickCategoryState = {
@@ -32,6 +34,12 @@ type QuickCategoryState = {
   name: string;
   type: CategoryType;
   color: string;
+  error: string;
+};
+
+type InternalTransferState = {
+  transactionId: string;
+  counterAccountId: string;
   error: string;
 };
 
@@ -62,6 +70,7 @@ export function TransactionsTable({
   const [filters, setFilters] = useState(initialFilters);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
+  const [internalTransfer, setInternalTransfer] = useState<InternalTransferState | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -159,6 +168,40 @@ export function TransactionsTable({
     setTransactions((current) => current.map((tx) => (tx.id === id ? { ...tx, cleanDescription } : tx)));
   }
 
+
+  function openInternalTransfer(tx: TransactionRow) {
+    const defaultCounter = accounts.find((account) => account.id !== tx.accountId)?.id ?? "";
+    setInternalTransfer({ transactionId: tx.id, counterAccountId: tx.internalTransferCounterAccountId ?? defaultCounter, error: "" });
+  }
+
+  async function saveInternalTransfer() {
+    if (!internalTransfer) return;
+    if (!internalTransfer.counterAccountId) {
+      setInternalTransfer({ ...internalTransfer, error: "Elige la cuenta origen o destino." });
+      return;
+    }
+
+    const updated = await patchTransaction(internalTransfer.transactionId, {
+      isInternalTransfer: true,
+      internalTransferCounterAccountId: internalTransfer.counterAccountId
+    });
+    if (!updated) {
+      setInternalTransfer({ ...internalTransfer, error: "No se pudo marcar como transferencia interna." });
+      return;
+    }
+
+    setTransactions((current) => current.map((tx) => (tx.id === updated.id ? { ...tx, ...updated } : tx)));
+    setInternalTransfer(null);
+  }
+
+  async function clearInternalTransfer(tx: TransactionRow) {
+    const updated = await patchTransaction(tx.id, {
+      isInternalTransfer: false,
+      internalTransferCounterAccountId: null
+    });
+    if (!updated) return;
+    setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, ...updated } : item)));
+  }
   async function remove(id: string) {
     const confirmed = window.confirm("¿Eliminar este movimiento? Esta acción no se puede deshacer.");
     if (!confirmed) return;
@@ -260,17 +303,28 @@ export function TransactionsTable({
                   {tx.balance === null ? "-" : formatCurrency(tx.balance)}
                 </td>
                 <td className="px-4 py-3">
-                  <Badge tone={tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
-                    {tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
+                  <Badge tone={tx.isInternalTransfer ? "neutral" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
+                    {tx.isInternalTransfer ? "Transferencia interna" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
                   </Badge>
                 </td>
                 <td className="max-w-xs px-4 py-3 text-muted-foreground">
                   {tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    {tx.isInternalTransfer ? (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>
+                        Quitar interna
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>
+                        Transferencia interna
+                      </Button>
+                    )}
+                    <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -300,6 +354,35 @@ export function TransactionsTable({
             <div className="mt-5 flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={() => setQuickCategory(null)}>Cancelar</Button>
               <Button type="button" onClick={() => void createQuickCategory()} disabled={savingId === quickCategory.transactionId}>Crear y asignar</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {internalTransfer ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="internal-transfer-title">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="internal-transfer-title" className="text-base font-semibold text-card-foreground">Transferencia interna</h3>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setInternalTransfer(null)} title="Cerrar">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">Elige la otra cuenta propia de esta transferencia. No contará como gasto ni ingreso real.</p>
+              <Select value={internalTransfer.counterAccountId} onChange={(event) => setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, error: "" })}>
+                <option value="">Seleccionar cuenta</option>
+                {accounts
+                  .filter((account) => account.id !== transactions.find((tx) => tx.id === internalTransfer.transactionId)?.accountId)
+                  .map((account) => (
+                    <option key={account.id} value={account.id}>{account.name}</option>
+                  ))}
+              </Select>
+              {internalTransfer.error ? <p className="text-sm text-danger">{internalTransfer.error}</p> : null}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setInternalTransfer(null)}>Cancelar</Button>
+              <Button type="button" onClick={() => void saveInternalTransfer()} disabled={savingId === internalTransfer.transactionId}>Guardar</Button>
             </div>
           </div>
         </div>

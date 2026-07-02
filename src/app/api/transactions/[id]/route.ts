@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Role, TransactionType } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { recalculateMonthlySummaries } from "@/lib/finance";
+import { recalculateMonthlySummaries, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 type TransactionBody = {
@@ -13,6 +13,8 @@ type TransactionBody = {
   date?: string;
   amount?: number;
   type?: TransactionType;
+  isInternalTransfer?: boolean;
+  internalTransferCounterAccountId?: string | null;
 };
 
 async function authorizeTransaction(id: string) {
@@ -30,6 +32,65 @@ async function authorizeTransaction(id: string) {
   return { session, transaction };
 }
 
+function transferTolerance(amount: number) {
+  return Math.max(1, Math.abs(amount) * 0.001);
+}
+
+async function pairManualInternalTransfer(transactionId: string) {
+  const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
+  if (!transaction?.isInternalTransfer || !transaction.internalTransferCounterAccountId) {
+    return null;
+  }
+
+  const amount = toNumber(transaction.amount);
+  if (amount === 0) {
+    return null;
+  }
+
+  const tolerance = transferTolerance(amount);
+  const target = -amount;
+  const start = new Date(transaction.date.getTime() - 7 * 86_400_000);
+  const end = new Date(transaction.date.getTime() + 7 * 86_400_000);
+  const counterpart = await prisma.transaction.findFirst({
+    where: {
+      userId: transaction.userId,
+      id: { not: transaction.id },
+      accountId: transaction.internalTransferCounterAccountId,
+      date: { gte: start, lte: end },
+      amount: { gte: target - tolerance, lte: target + tolerance }
+    },
+    orderBy: [{ date: "asc" }, { createdAt: "asc" }]
+  });
+
+  if (!counterpart) {
+    return null;
+  }
+
+  const groupId = `internal-${[transaction.id, counterpart.id].sort().join("-")}`;
+  await prisma.$transaction([
+    prisma.transaction.update({
+      where: { id: transaction.id },
+      data: {
+        type: TransactionType.TRANSFER,
+        isInternalTransfer: true,
+        internalTransferGroupId: groupId,
+        internalTransferCounterAccountId: counterpart.accountId
+      }
+    }),
+    prisma.transaction.update({
+      where: { id: counterpart.id },
+      data: {
+        type: TransactionType.TRANSFER,
+        isInternalTransfer: true,
+        internalTransferGroupId: groupId,
+        internalTransferCounterAccountId: transaction.accountId
+      }
+    })
+  ]);
+
+  return groupId;
+}
+
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -42,7 +103,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.accountId) {
       const account = await prisma.account.findUnique({ where: { id: body.accountId } });
       if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
-        return NextResponse.json({ error: "La cuenta seleccionada no es válida." }, { status: 400 });
+        return NextResponse.json({ error: "La cuenta seleccionada no es valida." }, { status: 400 });
+      }
+    }
+
+    if (body.internalTransferCounterAccountId) {
+      const counterAccount = await prisma.account.findUnique({ where: { id: body.internalTransferCounterAccountId } });
+      if (!counterAccount || counterAccount.userId !== authorized.transaction.userId || counterAccount.id === (body.accountId ?? authorized.transaction.accountId)) {
+        return NextResponse.json({ error: "La cuenta contraria no es valida." }, { status: 400 });
       }
     }
 
@@ -51,7 +119,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         where: { id: body.categoryId, OR: [{ userId: null }, { userId: authorized.transaction.userId }] }
       });
       if (!category || category.isArchived) {
-        return NextResponse.json({ error: "La categoría seleccionada no es válida." }, { status: 400 });
+        return NextResponse.json({ error: "La categoria seleccionada no es valida." }, { status: 400 });
       }
     }
 
@@ -64,13 +132,31 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         accountId: body.accountId || undefined,
         date: body.date ? new Date(body.date) : undefined,
         amount: typeof body.amount === "number" ? body.amount : undefined,
-        type: body.type
-      },
+        type: body.isInternalTransfer === true ? TransactionType.TRANSFER : body.type,
+        isInternalTransfer: typeof body.isInternalTransfer === "boolean" ? body.isInternalTransfer : undefined,
+        internalTransferCounterAccountId: body.isInternalTransfer === false ? null : body.internalTransferCounterAccountId === null ? null : body.internalTransferCounterAccountId || undefined,
+        internalTransferGroupId: body.isInternalTransfer === false ? null : body.isInternalTransfer === true ? `manual-${id}` : undefined
+      }
+    });
+
+    if (body.isInternalTransfer === true) {
+      await pairManualInternalTransfer(updated.id);
+    }
+
+    if (body.isInternalTransfer === false && authorized.transaction.internalTransferGroupId) {
+      await prisma.transaction.updateMany({
+        where: { userId: authorized.transaction.userId, internalTransferGroupId: authorized.transaction.internalTransferGroupId },
+        data: { isInternalTransfer: false, internalTransferGroupId: null, internalTransferCounterAccountId: null }
+      });
+    }
+
+    const result = await prisma.transaction.findUniqueOrThrow({
+      where: { id: updated.id },
       include: { category: true, account: true, importHistory: { select: { id: true, fileName: true } } }
     });
 
-    await recalculateMonthlySummaries(updated.userId);
-    return NextResponse.json({ transaction: updated });
+    await recalculateMonthlySummaries(result.userId);
+    return NextResponse.json({ transaction: result });
   } catch (error) {
     return jsonError(error, "No se pudo actualizar el movimiento.");
   }
