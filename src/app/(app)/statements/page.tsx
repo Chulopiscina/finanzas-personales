@@ -1,9 +1,8 @@
 import { ImportHistoryList } from "@/components/import-history-list";
-import { ProfileForm } from "@/components/profile-form";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export default async function ProfilePage() {
+export default async function StatementsPage() {
   const session = await getSessionUser();
   if (!session) {
     return null;
@@ -12,17 +11,15 @@ export default async function ProfilePage() {
   const imports = await prisma.importHistory.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
-    take: 10,
     include: { account: { select: { id: true, name: true } } }
   });
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Perfil</h1>
-        <p className="text-sm text-muted-foreground">Datos personales, contraseña y últimos extractos</p>
+        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Extractos subidos</h1>
+        <p className="text-sm text-muted-foreground">Gestiona documentos importados y sus movimientos asociados.</p>
       </header>
-      <ProfileForm user={session.user} />
       <ImportHistoryList imports={imports} />
     </div>
   );

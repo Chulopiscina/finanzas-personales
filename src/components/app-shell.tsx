@@ -5,10 +5,13 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   CircleDollarSign,
+  FileText,
+  FolderKanban,
   LayoutDashboard,
   LogOut,
   Menu,
   Shield,
+  Tags,
   Upload,
   UserRound,
   WalletCards,

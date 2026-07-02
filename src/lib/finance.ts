@@ -1,12 +1,12 @@
-﻿import { Role, TransactionType, type Category, type Transaction } from "@prisma/client";
+import { AccountType, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 
-type TransactionWithCategory = Transaction & { category: Category | null };
+type TransactionWithCategory = Transaction & { category: Category | null; account?: Account | null };
 
 export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 
-function toNumber(value: unknown) {
+export function toNumber(value: unknown) {
   if (value === null || value === undefined) {
     return 0;
   }
@@ -82,7 +82,7 @@ function buildMonthlyRows(transactions: TransactionWithCategory[]) {
     row.transactions += 1;
 
     if (expense > 0) {
-      const category = tx.category?.name ?? "Otros";
+      const category = tx.category?.name ?? "Sin categoría";
       row.categories.set(category, (row.categories.get(category) ?? 0) + expense);
     }
 
@@ -101,7 +101,7 @@ function categoryRows(transactions: TransactionWithCategory[]) {
       continue;
     }
 
-    const name = tx.category?.name ?? "Otros";
+    const name = tx.category?.name ?? "Sin categoría";
     const current = totals.get(name) ?? {
       name,
       value: 0,
@@ -126,7 +126,7 @@ function buildInsights(monthly: ReturnType<typeof buildMonthlyRows>, categoryTot
 
   if (current && previous && previous.savings !== 0) {
     const change = ((current.savings - previous.savings) / Math.abs(previous.savings)) * 100;
-    const direction = change >= 0 ? "mÃ¡s" : "menos";
+    const direction = change >= 0 ? "más" : "menos";
     insights.push(`Has ahorrado un ${Math.abs(change).toFixed(0)} % ${direction} que el mes anterior.`);
   }
 
@@ -144,58 +144,118 @@ function buildInsights(monthly: ReturnType<typeof buildMonthlyRows>, categoryTot
   return insights;
 }
 
-function recommendations(categoryTotals: ReturnType<typeof categoryRows>, monthly: ReturnType<typeof buildMonthlyRows>) {
+function recommendations(categoryTotals: ReturnType<typeof categoryRows>, monthly: ReturnType<typeof buildMonthlyRows>, uncategorized: number) {
   const tips: string[] = [];
   const topCategory = categoryTotals[0];
   const last = monthly.at(-1);
 
+  if (uncategorized > 0) {
+    tips.push(`Tienes ${uncategorized} movimientos sin categoría.`);
+  }
+
   if (topCategory && last && last.expenses > 0 && topCategory.value / last.expenses > 0.35) {
-    tips.push(`Revisa ${topCategory.name}: concentra mÃ¡s del 35 % del gasto del mes.`);
+    tips.push(`Revisa ${topCategory.name}: concentra más del 35 % del gasto del mes.`);
   }
 
   if (last && last.savings < 0) {
-    tips.push("Este mes los gastos superan a los ingresos. Marca un lÃ­mite semanal para recuperar margen.");
+    tips.push("Este mes los gastos superan a los ingresos. Marca un límite semanal para recuperar margen.");
   }
 
   if (last && last.savings > 0) {
-    tips.push("Reserva el ahorro positivo al inicio del mes siguiente para evitar gastarlo por inercia.");
+    tips.push("Este mes has ahorrado más de lo que has gastado.");
   }
 
   if (tips.length === 0) {
-    tips.push("MantÃ©n una revisiÃ³n semanal de movimientos para detectar suscripciones o duplicados.");
+    tips.push("Mantén una revisión semanal de movimientos para detectar suscripciones o duplicados.");
   }
 
   return tips;
 }
 
-export async function getDashboardData(userId: string) {
-  const [transactions, lastImport] = await Promise.all([
+export async function ensureDefaultAccount(userId: string) {
+  const existing = await prisma.account.findFirst({ where: { userId }, orderBy: { createdAt: "asc" } });
+  if (existing) {
+    return existing;
+  }
+
+  return prisma.account.create({
+    data: {
+      userId,
+      name: "Cuenta principal",
+      type: AccountType.BANK,
+      color: "#14b8a6",
+      icon: "landmark"
+    }
+  });
+}
+
+function accountBalance(account: Account, transactions: TransactionWithCategory[]) {
+  const latestWithBalance = transactions.find((tx) => tx.accountId === account.id && tx.balance !== null);
+  if (latestWithBalance?.balance !== null && latestWithBalance?.balance !== undefined) {
+    return toNumber(latestWithBalance.balance);
+  }
+
+  const movementTotal = transactions
+    .filter((tx) => tx.accountId === account.id)
+    .reduce((sum, tx) => sum + toNumber(tx.amount), 0);
+  return toNumber(account.initialBalance) + movementTotal;
+}
+
+export async function getDashboardData(userId: string, accountId?: string | null) {
+  await ensureDefaultAccount(userId);
+
+  const accounts = await prisma.account.findMany({
+    where: { userId },
+    orderBy: [{ isArchived: "asc" }, { createdAt: "asc" }]
+  });
+  const selectedAccount = accountId ? accounts.find((account) => account.id === accountId) ?? null : null;
+  const activeAccountIds = accounts.filter((account) => !account.isArchived).map((account) => account.id);
+  const accountFilter = selectedAccount ? [selectedAccount.id] : activeAccountIds;
+
+  const [transactions, lastImport, recentImports] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId },
-      include: { category: true },
+      where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } },
+      include: { category: true, account: true },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }]
     }),
     prisma.importHistory.findFirst({
-      where: { userId },
+      where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) },
       orderBy: { createdAt: "desc" }
+    }),
+    prisma.importHistory.findMany({
+      where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) },
+      include: { account: true },
+      orderBy: { createdAt: "desc" },
+      take: 5
     })
   ]);
 
   const totalIncome = transactions.reduce((sum, tx) => sum + signedIncome(tx), 0);
   const totalExpenses = transactions.reduce((sum, tx) => sum + signedExpense(tx), 0);
   const savings = totalIncome - totalExpenses;
-  const latestBalance = transactions.find((tx) => tx.balance !== null)?.balance;
+  const currentBalance = selectedAccount
+    ? accountBalance(selectedAccount, transactions)
+    : accounts.filter((account) => !account.isArchived).reduce((sum, account) => sum + accountBalance(account, transactions), 0);
   const monthly = buildMonthlyRows(transactions);
   const categories = categoryRows(transactions);
   const averageMonthlyExpense =
-    monthly.length > 0
-      ? monthly.reduce((sum, row) => sum + row.expenses, 0) / monthly.length
-      : 0;
+    monthly.length > 0 ? monthly.reduce((sum, row) => sum + row.expenses, 0) / monthly.length : 0;
   const currentMonthSavings = monthly.at(-1)?.savings ?? 0;
+  const uncategorizedCount = transactions.filter((tx) => !tx.categoryId).length;
 
   return {
+    accounts: accounts.map((account) => ({
+      id: account.id,
+      name: account.name,
+      isArchived: account.isArchived,
+      color: account.color,
+      type: account.type
+    })),
+    selectedAccount: selectedAccount
+      ? { id: selectedAccount.id, name: selectedAccount.name, color: selectedAccount.color, type: selectedAccount.type }
+      : null,
     metrics: {
-      currentBalance: latestBalance ? toNumber(latestBalance) : savings,
+      currentBalance,
       totalIncome,
       totalExpenses,
       accumulatedSavings: savings,
@@ -203,7 +263,8 @@ export async function getDashboardData(userId: string) {
       transactionCount: transactions.length,
       averageMonthlyExpense,
       topCategory: categories[0]?.name ?? "Sin datos",
-      lastUpdate: lastImport?.createdAt?.toISOString() ?? null
+      lastUpdate: lastImport?.createdAt?.toISOString() ?? null,
+      uncategorizedCount
     },
     charts: {
       categories,
@@ -221,14 +282,22 @@ export async function getDashboardData(userId: string) {
       }))
     },
     insights: buildInsights(monthly, categories),
-    recommendations: recommendations(categories, monthly),
+    recommendations: recommendations(categories, monthly, uncategorizedCount),
+    recentImports: recentImports.map((item) => ({
+      id: item.id,
+      fileName: item.fileName,
+      accountName: item.account.name,
+      createdAt: item.createdAt.toISOString(),
+      insertedRows: item.insertedRows
+    })),
     recentTransactions: transactions.slice(0, 8).map((tx) => ({
       id: tx.id,
       date: tx.date.toISOString(),
-      concept: tx.concept,
+      concept: tx.cleanDescription || tx.concept,
       amount: toNumber(tx.amount),
       type: tx.type,
-      category: tx.category?.name ?? "Otros"
+      category: tx.category?.name ?? "Sin categoría",
+      account: tx.account?.name ?? "Cuenta"
     }))
   };
 }
@@ -330,16 +399,16 @@ export async function getAdminStats() {
     recentActivity: [
       ...recentImports.map((item) => ({
         id: `import-${item.id}`,
-        type: "ImportaciÃ³n CSV",
+        type: "Importación",
         user: item.user.name,
         detail: `${item.insertedRows} insertados, ${item.duplicateRows} duplicados`,
         date: item.createdAt.toISOString()
       })),
       ...recentSessions.map((item) => ({
         id: `session-${item.id}`,
-        type: "Inicio de sesiÃ³n",
+        type: "Inicio de sesión",
         user: item.user.name,
-        detail: item.userAgent ?? "SesiÃ³n web",
+        detail: item.userAgent ?? "Sesión web",
         date: item.createdAt.toISOString()
       }))
     ]

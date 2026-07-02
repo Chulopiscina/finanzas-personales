@@ -7,7 +7,9 @@ import { prisma } from "@/lib/prisma";
 
 type TransactionBody = {
   concept?: string;
+  cleanDescription?: string | null;
   categoryId?: string | null;
+  accountId?: string;
   date?: string;
   amount?: number;
   type?: TransactionType;
@@ -37,18 +39,34 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const body = await readJson<TransactionBody>(request);
-    const data = {
-      concept: body.concept?.trim() || undefined,
-      categoryId: body.categoryId === null ? null : body.categoryId || undefined,
-      date: body.date ? new Date(body.date) : undefined,
-      amount: typeof body.amount === "number" ? body.amount : undefined,
-      type: body.type
-    };
+    if (body.accountId) {
+      const account = await prisma.account.findUnique({ where: { id: body.accountId } });
+      if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
+        return NextResponse.json({ error: "La cuenta seleccionada no es válida." }, { status: 400 });
+      }
+    }
+
+    if (body.categoryId) {
+      const category = await prisma.category.findFirst({
+        where: { id: body.categoryId, OR: [{ userId: null }, { userId: authorized.transaction.userId }] }
+      });
+      if (!category || category.isArchived) {
+        return NextResponse.json({ error: "La categoría seleccionada no es válida." }, { status: 400 });
+      }
+    }
 
     const updated = await prisma.transaction.update({
       where: { id },
-      data,
-      include: { category: true }
+      data: {
+        concept: body.concept?.trim() || undefined,
+        cleanDescription: body.cleanDescription === null ? null : body.cleanDescription?.trim() || undefined,
+        categoryId: body.categoryId === null ? null : body.categoryId || undefined,
+        accountId: body.accountId || undefined,
+        date: body.date ? new Date(body.date) : undefined,
+        amount: typeof body.amount === "number" ? body.amount : undefined,
+        type: body.type
+      },
+      include: { category: true, account: true, importHistory: { select: { id: true, fileName: true } } }
     });
 
     await recalculateMonthlySummaries(updated.userId);

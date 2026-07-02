@@ -22,36 +22,82 @@ enum TransactionType {
 enum ImportStatus {
   COMPLETED
   FAILED
+  PENDING
+}
+
+enum AccountType {
+  BANK
+  SAVINGS
+  CARD
+  CASH
+  INVESTMENT
+  DEBT
+  OTHER
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+  SAVINGS
+  TRANSFER
+  OTHER
 }
 
 model User {
-  id             String           @id @default(cuid())
-  name           String
-  email          String           @unique
-  passwordHash   String
-  role           Role             @default(USER)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  lastLoginAt    DateTime?
-  transactions   Transaction[]
+  id               String           @id @default(cuid())
+  name             String
+  email            String           @unique
+  passwordHash     String
+  role             Role             @default(USER)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  lastLoginAt      DateTime?
+  transactions     Transaction[]
   monthlySummaries MonthlySummary[]
-  imports        ImportHistory[]
-  sessions       Session[]
+  imports          ImportHistory[]
+  sessions         Session[]
+  accounts         Account[]
+  categories       Category[]
 
   @@index([role])
   @@index([lastLoginAt])
 }
 
+model Account {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  type          AccountType     @default(BANK)
+  initialBalance Decimal        @default(0) @db.Decimal(12, 2)
+  currency      String          @default("EUR")
+  color         String?
+  icon          String?
+  isArchived    Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  transactions  Transaction[]
+  imports       ImportHistory[]
+
+  @@unique([userId, name])
+  @@index([userId, isArchived])
+}
+
 model Category {
   id           String        @id @default(cuid())
+  userId       String?
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name         String
+  type         CategoryType  @default(OTHER)
   color        String
   icon         String
+  isArchived   Boolean       @default(false)
   transactions Transaction[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  @@unique([name])
+  @@unique([userId, name])
+  @@index([userId, isArchived])
   @@index([name])
 }
 
@@ -59,12 +105,16 @@ model Transaction {
   id              String          @id @default(cuid())
   userId          String
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId       String
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Restrict)
   categoryId      String?
   category        Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   importHistoryId String?
   importHistory   ImportHistory?  @relation(fields: [importHistoryId], references: [id], onDelete: SetNull)
   date            DateTime
   concept         String
+  cleanDescription String?
+  rawDescription  String?
   amount          Decimal         @db.Decimal(12, 2)
   balance         Decimal?        @db.Decimal(12, 2)
   type            TransactionType
@@ -73,9 +123,11 @@ model Transaction {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  @@unique([userId, sourceHash])
+  @@unique([userId, accountId, sourceHash])
   @@index([userId, date])
+  @@index([accountId, date])
   @@index([categoryId])
+  @@index([importHistoryId])
   @@index([type])
 }
 
@@ -102,6 +154,8 @@ model ImportHistory {
   id            String       @id @default(cuid())
   userId        String
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
   fileName      String
   fileHash      String
   fileSize      Int          @default(0)
@@ -110,12 +164,15 @@ model ImportHistory {
   rowCount      Int
   insertedRows  Int
   duplicateRows Int
+  incomeTotal   Decimal      @default(0) @db.Decimal(12, 2)
+  expenseTotal  Decimal      @default(0) @db.Decimal(12, 2)
   status        ImportStatus
   errorMessage  String?
   createdAt     DateTime     @default(now())
   transactions  Transaction[]
 
   @@index([userId, createdAt])
+  @@index([accountId, createdAt])
   @@index([fileHash])
 }
 
