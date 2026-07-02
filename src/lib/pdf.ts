@@ -9,6 +9,7 @@ const fullDatePattern = /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/;
 const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
 const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
+const moneyWithCurrencyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}\s*\u20ac|-?\d+,\d{2}\s*\u20ac|[-+]?\d+\.\d{2}\s*\u20ac/g;
 
 async function ensurePdfRuntime() {
   const globalWithDom = globalThis as Record<string, unknown>;
@@ -28,6 +29,10 @@ async function ensurePdfRuntime() {
   }
 }
 
+function normalizeLine(line: string) {
+  return line.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function normalizePdfText(text: string) {
   return text
     .replace(/\u00a0/g, " ")
@@ -35,7 +40,7 @@ function normalizePdfText(text: string) {
     .replace(/\s+(?=\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b)/g, "\n")
     .replace(/\s+(?=\d{1,2}[/-]\d{1,2}\s+\d{1,2}[/-]\d{1,2}\b)/g, "\n")
     .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
+    .map(normalizeLine)
     .filter(Boolean);
 }
 
@@ -157,6 +162,16 @@ function parsePdfDate(record: string, context: PdfStatementContext) {
   return { date: parseSpanishDate(fullDateMatch[0]), rest };
 }
 
+function movementHash(date: Date, concept: string, amount: number, balance: number | null, source: string) {
+  return hashValue([
+    source,
+    date.toISOString().slice(0, 10),
+    concept.toLowerCase().replace(/\s+/g, " ").trim(),
+    amount.toFixed(2),
+    balance === null || Number.isNaN(balance) ? "" : balance.toFixed(2)
+  ].join("|"));
+}
+
 function parsePdfRecord(record: string, index: number, context: PdfStatementContext): ParsedMovement | null {
   const parsedDate = parsePdfDate(record, context);
   if (!parsedDate) {
@@ -189,12 +204,6 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
   }
 
   const classification = classify(concept, amount);
-  const normalizedKey = [
-    date.toISOString().slice(0, 10),
-    concept.toLowerCase().replace(/\s+/g, " ").trim(),
-    amount.toFixed(2),
-    balance === null || Number.isNaN(balance) ? "" : balance.toFixed(2)
-  ].join("|");
 
   return {
     date,
@@ -203,10 +212,55 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
     balance: balance === null || Number.isNaN(balance) ? null : balance,
     type: classification.type,
     categoryName: classification.categoryName,
-    sourceHash: hashValue(normalizedKey),
+    sourceHash: movementHash(date, concept, amount, balance, "pdf"),
     raw: {
       source: "pdf",
       record,
+      extractedAt: new Date().toISOString()
+    }
+  };
+}
+
+function isIngPdf(text: string) {
+  return /\bING BANK\b/i.test(text) && /Certificado de Movimientos/i.test(text);
+}
+
+function parseINGRecord(line: string, index: number): ParsedMovement | null {
+  const normalized = normalizeLine(line);
+  const rowMatch = normalized.match(/^(\d{1,2}[/-]\d{1,2}[/-]\d{4})\s+(.+?)\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})\s+(.+)$/);
+  if (!rowMatch) {
+    return null;
+  }
+
+  const date = parseSpanishDate(rowMatch[1]);
+  const concept = rowMatch[2].replace(/\s+/g, " ").trim();
+  const tail = rowMatch[4];
+  const moneyMatches = [...tail.matchAll(moneyWithCurrencyPattern)];
+
+  if (moneyMatches.length < 2 || !concept) {
+    return null;
+  }
+
+  const balance = parseSpanishAmount(moneyMatches[moneyMatches.length - 2][0]);
+  const amount = parseSpanishAmount(moneyMatches[moneyMatches.length - 1][0]);
+
+  if (!Number.isFinite(amount)) {
+    throw new Error(`Importe invalido en el movimiento ING ${index + 1}.`);
+  }
+
+  const classification = classify(concept, amount);
+  return {
+    date,
+    concept,
+    amount,
+    balance: Number.isFinite(balance) ? balance : null,
+    type: classification.type,
+    categoryName: classification.categoryName,
+    sourceHash: movementHash(date, concept, amount, Number.isFinite(balance) ? balance : null, "ing-pdf"),
+    raw: {
+      source: "ing-pdf",
+      record: line,
+      valueDate: rowMatch[3],
       extractedAt: new Date().toISOString()
     }
   };
@@ -223,6 +277,19 @@ export async function extractPdfText(buffer: Buffer) {
   } finally {
     await parser.destroy();
   }
+}
+
+export function parseINGPdfText(text: string) {
+  const lines = text.split(/\r?\n/).map(normalizeLine).filter(Boolean);
+  const movements = lines
+    .map((line, index) => parseINGRecord(line, index))
+    .filter((movement): movement is ParsedMovement => movement !== null);
+
+  if (movements.length === 0) {
+    throw new Error("No he podido detectar movimientos en el PDF de ING. Debe contener filas con fecha, concepto, saldo e importe.");
+  }
+
+  return movements;
 }
 
 export async function parseBBVAPdf(buffer: Buffer) {
@@ -243,6 +310,30 @@ export async function parseBBVAPdf(buffer: Buffer) {
     throw new Error(
       "No he podido detectar movimientos en el PDF. Debe contener filas con fecha, concepto, importe y saldo."
     );
+  }
+
+  return movements;
+}
+
+export async function parseBankPdf(buffer: Buffer) {
+  const text = await extractPdfText(buffer);
+  if (isIngPdf(text)) {
+    return parseINGPdfText(text);
+  }
+
+  const lines = normalizePdfText(text);
+  if (lines.length === 0) {
+    throw new Error("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
+  }
+
+  const context = getStatementContext(text);
+  const records = buildRecords(lines);
+  const movements = records
+    .map((record, index) => parsePdfRecord(record, index, context))
+    .filter((movement): movement is ParsedMovement => movement !== null);
+
+  if (movements.length === 0) {
+    throw new Error("No he podido detectar movimientos en el PDF. Debe contener filas con fecha, concepto, importe y saldo.");
   }
 
   return movements;

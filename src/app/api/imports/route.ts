@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { CategoryType, ImportStatus, TransactionType } from "@prisma/client";
 import { jsonError } from "@/lib/api";
-import { parseBBVACsv } from "@/lib/csv";
+import { parseBankCsv } from "@/lib/csv";
 import { requireUser } from "@/lib/auth";
 import { ensureDefaultAccount, recalculateMonthlySummaries } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const categoryStyle: Record<string, { color: string; icon: string; type: CategoryType }> = {
-  Alimentación: { color: "#22c55e", icon: "utensils", type: CategoryType.EXPENSE },
+  ["Alimentaci\u00f3n"]: { color: "#22c55e", icon: "utensils", type: CategoryType.EXPENSE },
   Restaurantes: { color: "#f97316", icon: "chef-hat", type: CategoryType.EXPENSE },
   Supermercado: { color: "#84cc16", icon: "shopping-basket", type: CategoryType.EXPENSE },
   Transporte: { color: "#06b6d4", icon: "bus", type: CategoryType.EXPENSE },
@@ -22,7 +22,7 @@ const categoryStyle: Record<string, { color: string; icon: string; type: Categor
   Vivienda: { color: "#14b8a6", icon: "home", type: CategoryType.EXPENSE },
   Ocio: { color: "#f43f5e", icon: "party-popper", type: CategoryType.EXPENSE },
   Viajes: { color: "#0ea5e9", icon: "plane", type: CategoryType.EXPENSE },
-  Nómina: { color: "#10b981", icon: "wallet", type: CategoryType.INCOME },
+  ["N\u00f3mina"]: { color: "#10b981", icon: "wallet", type: CategoryType.INCOME },
   Transferencias: { color: "#64748b", icon: "arrow-left-right", type: CategoryType.TRANSFER },
   Otros: { color: "#94a3b8", icon: "circle-dot", type: CategoryType.OTHER }
 };
@@ -37,7 +37,7 @@ async function resolveImportAccount(userId: string, requestedAccountId: FormData
   if (requested) {
     const account = accounts.find((item) => item.id === requested);
     if (!account) {
-      throw new Error("La cuenta seleccionada no existe o está archivada.");
+      throw new Error("La cuenta seleccionada no existe o est\u00e1 archivada.");
     }
     return account;
   }
@@ -94,8 +94,8 @@ export async function POST(request: NextRequest) {
     const text = isCsv ? fileBuffer.toString("utf8") : null;
     const storedContent = isCsv ? text ?? "" : fileBuffer.toString("base64");
     const movements = isCsv
-      ? parseBBVACsv(text ?? "")
-      : await import("@/lib/pdf").then(({ parseBBVAPdf }) => parseBBVAPdf(fileBuffer));
+      ? parseBankCsv(text ?? "")
+      : await import("@/lib/pdf").then(({ parseBankPdf }) => parseBankPdf(fileBuffer));
 
     if (movements.length === 0) {
       return NextResponse.json({ error: "El archivo no contiene movimientos." }, { status: 400 });

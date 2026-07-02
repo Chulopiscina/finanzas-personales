@@ -13,20 +13,37 @@ export type ParsedMovement = {
   raw: Record<string, string>;
 };
 
+const CATEGORY_NAMES = {
+  payroll: "N\u00f3mina",
+  food: "Alimentaci\u00f3n",
+  restaurants: "Restaurantes",
+  supermarket: "Supermercado",
+  transport: "Transporte",
+  fuel: "Gasolina",
+  health: "Salud",
+  shopping: "Compras",
+  subscriptions: "Suscripciones",
+  housing: "Vivienda",
+  leisure: "Ocio",
+  travel: "Viajes",
+  transfers: "Transferencias",
+  other: "Otros"
+};
+
 const categoryRules: Array<[string, RegExp]> = [
-  ["Nómina", /\b(nomina|n[oó]mina|salario|p[ao]yroll|haberes)\b/i],
-  ["Restaurantes", /\b(restaurante|bar |cafeter[ií]a|burger|pizza|glovo|uber eats|deliveroo|just eat)\b/i],
-  ["Supermercado", /\b(mercadona|carrefour|lidl|aldi|bonpreu|caprabo|supermercado|consum|alcampo|dia market)\b/i],
-  ["Transporte", /\b(tmb|renfe|metro|bus|taxi|uber|cabify|transport|parking|peaje)\b/i],
-  ["Gasolina", /\b(gasolinera|repsol|cepsa|bp |shell|galp|diesel|carburante)\b/i],
-  ["Salud", /\b(farmacia|cl[ií]nica|hospital|dentista|seguro salud|mutua)\b/i],
-  ["Compras", /\b(amazon|zara|mango|el corte ingl[eé]s|media markt|ikea|decathlon|tienda)\b/i],
-  ["Suscripciones", /\b(netflix|spotify|hbo|disney|apple|google|prime|suscripci[oó]n|adobe|notion)\b/i],
-  ["Vivienda", /\b(alquiler|hipoteca|luz|agua|gas natural|endesa|iberdrola|comunidad|seguro hogar)\b/i],
-  ["Ocio", /\b(cine|teatro|concierto|entradas|ocio|steam|playstation|xbox)\b/i],
-  ["Viajes", /\b(booking|airbnb|hotel|ryanair|vueling|iberia|renfe larga|viaje|aeropuerto)\b/i],
-  ["Transferencias", /\b(transferencia|traspaso|bizum|recibida|emitida)\b/i],
-  ["Alimentación", /\b(alimentaci[oó]n|panader[ií]a|fruter[ií]a|carnicer[ií]a)\b/i]
+  [CATEGORY_NAMES.payroll, /\b(nomina|n[o\u00f3]mina|salario|payroll|haberes)\b/i],
+  [CATEGORY_NAMES.restaurants, /\b(restaurante|rest\b|bar |cafeter[i\u00ed]a|burger|pizza|glovo|uber eats|deliveroo|just eat)\b/i],
+  [CATEGORY_NAMES.supermarket, /\b(mercadona|carrefour|lidl|aldi|bonpreu|caprabo|supermercado|consum|alcampo|dia market)\b/i],
+  [CATEGORY_NAMES.transport, /\b(tmb|renfe|metro|bus|taxi|uber|cabify|transport|parking|peaje)\b/i],
+  [CATEGORY_NAMES.fuel, /\b(gasolinera|repsol|cepsa|bp |shell|galp|diesel|carburante)\b/i],
+  [CATEGORY_NAMES.health, /\b(farmacia|cl[i\u00ed]nica|hospital|dentista|seguro salud|mutua)\b/i],
+  [CATEGORY_NAMES.shopping, /\b(amazon|zara|mango|uniqlo|el corte ingl[e\u00e9]s|media markt|ikea|decathlon|tienda)\b/i],
+  [CATEGORY_NAMES.subscriptions, /\b(netflix|spotify|hbo|disney|apple|google|prime|suscripci[o\u00f3]n|adobe|notion)\b/i],
+  [CATEGORY_NAMES.housing, /\b(alquiler|hipoteca|luz|agua|gas natural|endesa|iberdrola|comunidad|seguro hogar)\b/i],
+  [CATEGORY_NAMES.leisure, /\b(cine|teatro|concierto|entradas|ocio|steam|playstation|xbox|atrapalo)\b/i],
+  [CATEGORY_NAMES.travel, /\b(booking|airbnb|hotel|ryanair|vueling|iberia|renfe larga|viaje|aeropuerto)\b/i],
+  [CATEGORY_NAMES.transfers, /\b(transferencia|traspaso|transfer|incoming transfer|outgoing transfer|recibida|emitida)\b/i],
+  [CATEGORY_NAMES.food, /\b(alimentaci[o\u00f3]n|panader[i\u00ed]a|fruter[i\u00ed]a|carnicer[i\u00ed]a)\b/i]
 ];
 
 function normalizeHeader(header: string) {
@@ -47,6 +64,12 @@ function pick(row: Record<string, unknown>, names: string[]) {
   }
 
   return "";
+}
+
+function toRaw(row: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [key, value === undefined || value === null ? "" : String(value)])
+  );
 }
 
 export function parseSpanishAmount(value: string) {
@@ -80,6 +103,7 @@ export function parseSpanishAmount(value: string) {
   const amount = Number(normalized);
   return negative ? -amount : amount;
 }
+
 export function parseSpanishDate(value: string) {
   const cleaned = value.trim();
   const european = cleaned.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
@@ -95,7 +119,7 @@ export function parseSpanishDate(value: string) {
     return iso;
   }
 
-  throw new Error(`Fecha inválida: ${value}`);
+  throw new Error(`Fecha inv\u00e1lida: ${value}`);
 }
 
 export function hashValue(value: string) {
@@ -103,15 +127,15 @@ export function hashValue(value: string) {
 }
 
 export function classify(concept: string, amount: number) {
-  const transferRule = categoryRules.find(([name]) => name === "Transferencias");
-  const payrollRule = categoryRules.find(([name]) => name === "Nómina");
+  const transferRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.transfers);
+  const payrollRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.payroll);
 
   if (payrollRule?.[1].test(concept)) {
-    return { categoryName: "Nómina", type: TransactionType.INCOME };
+    return { categoryName: CATEGORY_NAMES.payroll, type: TransactionType.INCOME };
   }
 
   if (transferRule?.[1].test(concept)) {
-    return { categoryName: "Transferencias", type: TransactionType.TRANSFER };
+    return { categoryName: CATEGORY_NAMES.transfers, type: TransactionType.TRANSFER };
   }
 
   const matched = categoryRules.find(([, rule]) => rule.test(concept));
@@ -123,7 +147,7 @@ export function classify(concept: string, amount: number) {
   }
 
   return {
-    categoryName: amount >= 0 ? "Transferencias" : "Otros",
+    categoryName: amount >= 0 ? CATEGORY_NAMES.transfers : CATEGORY_NAMES.other,
     type: amount >= 0 ? TransactionType.INCOME : TransactionType.EXPENSE
   };
 }
@@ -132,17 +156,82 @@ export function csvFileHash(text: string) {
   return hashValue(text);
 }
 
-export function parseBBVACsv(text: string) {
+function normalizedKey(date: Date, concept: string, amount: number, balance: number | null, stableId?: string) {
+  return [
+    stableId || "",
+    date.toISOString().slice(0, 10),
+    concept.toLowerCase().replace(/\s+/g, " ").trim(),
+    amount.toFixed(2),
+    balance === null || Number.isNaN(balance) ? "" : balance.toFixed(2)
+  ].join("|");
+}
+
+function parseCsvRows(text: string) {
   const result = Papa.parse<Record<string, unknown>>(text, {
     header: true,
-    skipEmptyLines: true
+    skipEmptyLines: true,
+    transformHeader: (header) => header.trim()
   });
 
   if (result.errors.length > 0) {
-    throw new Error(`CSV inválido: ${result.errors[0]?.message ?? "no se pudo leer el archivo"}`);
+    throw new Error(`CSV inv\u00e1lido: ${result.errors[0]?.message ?? "no se pudo leer el archivo"}`);
   }
 
-  const movements = result.data.map((row, index) => {
+  return result.data;
+}
+
+function isTradeRepublicCsv(rows: Record<string, unknown>[]) {
+  const headers = Object.keys(rows[0] ?? {}).map(normalizeHeader);
+  return ["datetime", "date", "amount", "currency", "transaction id"].every((header) => headers.includes(header));
+}
+
+export function parseTradeRepublicCsv(text: string) {
+  const rows = parseCsvRows(text);
+  if (rows.length === 0) {
+    return [];
+  }
+
+  if (!isTradeRepublicCsv(rows)) {
+    throw new Error("El CSV no tiene el formato esperado de Trade Republic.");
+  }
+
+  return rows.map((row, index) => {
+    const dateValue = pick(row, ["date", "datetime"]);
+    const amountValue = pick(row, ["amount"]);
+    const name = pick(row, ["name"]);
+    const description = pick(row, ["description"]);
+    const typeValue = pick(row, ["type"]);
+    const transactionId = pick(row, ["transaction id", "transaction id"]);
+    const concept = [name, description || typeValue].filter(Boolean).join(" - ").trim();
+
+    if (!dateValue || !amountValue || !concept) {
+      throw new Error(`Faltan columnas obligatorias de Trade Republic en la fila ${index + 2}.`);
+    }
+
+    const date = parseSpanishDate(dateValue);
+    const amount = parseSpanishAmount(amountValue);
+    if (!Number.isFinite(amount)) {
+      throw new Error(`Importe inv\u00e1lido en la fila ${index + 2}.`);
+    }
+
+    const classification = classify(concept, amount);
+    return {
+      date,
+      concept,
+      amount,
+      balance: null,
+      type: classification.type,
+      categoryName: classification.categoryName,
+      sourceHash: hashValue(normalizedKey(date, concept, amount, null, transactionId || undefined)),
+      raw: { source: "trade-republic-csv", ...toRaw(row) }
+    } satisfies ParsedMovement;
+  });
+}
+
+export function parseBBVACsv(text: string) {
+  const rows = parseCsvRows(text);
+
+  return rows.map((row, index) => {
     const dateValue = pick(row, ["fecha", "fecha operacion", "fecha de operacion", "f operacion"]);
     const concept = pick(row, [
       "concepto",
@@ -163,16 +252,10 @@ export function parseBBVACsv(text: string) {
     const balance = balanceValue ? parseSpanishAmount(balanceValue) : null;
 
     if (!Number.isFinite(amount)) {
-      throw new Error(`Importe inválido en la fila ${index + 2}.`);
+      throw new Error(`Importe inv\u00e1lido en la fila ${index + 2}.`);
     }
 
     const classification = classify(concept, amount);
-    const normalizedKey = [
-      date.toISOString().slice(0, 10),
-      concept.toLowerCase().replace(/\s+/g, " ").trim(),
-      amount.toFixed(2),
-      balance === null || Number.isNaN(balance) ? "" : balance.toFixed(2)
-    ].join("|");
 
     return {
       date,
@@ -181,12 +264,21 @@ export function parseBBVACsv(text: string) {
       balance: balance === null || Number.isNaN(balance) ? null : balance,
       type: classification.type,
       categoryName: classification.categoryName,
-      sourceHash: hashValue(normalizedKey),
-      raw: Object.fromEntries(
-        Object.entries(row).map(([key, value]) => [key, value === undefined ? "" : String(value)])
-      )
+      sourceHash: hashValue(normalizedKey(date, concept, amount, balance)),
+      raw: toRaw(row)
     } satisfies ParsedMovement;
   });
+}
 
-  return movements;
+export function parseBankCsv(text: string) {
+  const rows = parseCsvRows(text);
+  if (rows.length === 0) {
+    return [];
+  }
+
+  if (isTradeRepublicCsv(rows)) {
+    return parseTradeRepublicCsv(text);
+  }
+
+  return parseBBVACsv(text);
 }
