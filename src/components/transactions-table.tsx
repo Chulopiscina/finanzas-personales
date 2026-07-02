@@ -1,13 +1,14 @@
-"use client";
+﻿"use client";
 
-import { Search, Trash2 } from "lucide-react";
+import { Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-type Category = { id: string; name: string; color: string };
+type CategoryType = "INCOME" | "EXPENSE" | "SAVINGS" | "TRANSFER" | "OTHER";
+type Category = { id: string; name: string; color: string; type?: CategoryType };
 type Account = { id: string; name: string; isArchived?: boolean };
 type ImportOption = { id: string; fileName: string };
 
@@ -24,6 +25,22 @@ type TransactionRow = {
   accountId: string;
   account: Account | null;
   importHistory: ImportOption | null;
+};
+
+type QuickCategoryState = {
+  transactionId: string;
+  name: string;
+  type: CategoryType;
+  color: string;
+  error: string;
+};
+
+const categoryTypeLabels: Record<CategoryType, string> = {
+  INCOME: "Ingreso",
+  EXPENSE: "Gasto",
+  SAVINGS: "Ahorro",
+  TRANSFER: "Transferencia",
+  OTHER: "Otro"
 };
 
 export function TransactionsTable({
@@ -44,6 +61,7 @@ export function TransactionsTable({
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState(initialFilters);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,28 +96,53 @@ export function TransactionsTable({
     return response.ok ? (payload.transaction as TransactionRow) : null;
   }
 
-  async function updateCategory(id: string, categoryId: string) {
-    let nextCategoryId = categoryId;
-    if (nextCategoryId === "__new") {
-      const name = window.prompt("Nombre de la nueva categoría");
-      if (!name?.trim()) return;
-      const response = await fetch("/api/categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), type: "EXPENSE" })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.category) return;
-      setCategories((current) => [...current, payload.category]);
-      nextCategoryId = payload.category.id;
-    }
-
-    const updated = await patchTransaction(id, { categoryId: nextCategoryId || null });
+  async function applyCategory(id: string, categoryId: string, fallbackCategory?: Category) {
+    const updated = await patchTransaction(id, { categoryId: categoryId || null });
     if (!updated) return;
-    const category = categories.find((item) => item.id === nextCategoryId) ?? updated.category ?? null;
+    const category = categories.find((item) => item.id === categoryId) ?? fallbackCategory ?? updated.category ?? null;
     setTransactions((current) =>
       current.map((tx) => (tx.id === id ? { ...tx, categoryId: category?.id ?? null, category } : tx))
     );
+  }
+
+  function updateCategory(id: string, categoryId: string) {
+    if (categoryId === "__new") {
+      const tx = transactions.find((item) => item.id === id);
+      setQuickCategory({
+        transactionId: id,
+        name: "",
+        type: tx?.type === "INCOME" ? "INCOME" : tx?.type === "TRANSFER" ? "TRANSFER" : "EXPENSE",
+        color: "#94a3b8",
+        error: ""
+      });
+      return;
+    }
+    void applyCategory(id, categoryId);
+  }
+
+  async function createQuickCategory() {
+    if (!quickCategory) return;
+    const name = quickCategory.name.trim();
+    if (!name) {
+      setQuickCategory({ ...quickCategory, error: "El nombre es obligatorio." });
+      return;
+    }
+
+    const response = await fetch("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, type: quickCategory.type, color: quickCategory.color })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.category) {
+      setQuickCategory({ ...quickCategory, error: payload.error ?? "No se pudo crear la categoría." });
+      return;
+    }
+
+    const newCategory = payload.category as Category;
+    setCategories((current) => [...current, newCategory]);
+    setQuickCategory(null);
+    await applyCategory(quickCategory.transactionId, newCategory.id, newCategory);
   }
 
   async function updateAccount(id: string, accountId: string) {
@@ -202,7 +245,7 @@ export function TransactionsTable({
                   </Select>
                 </td>
                 <td className="px-4 py-3">
-                  <Select value={tx.categoryId ?? ""} onChange={(event) => void updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
+                  <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
                     <option value="">Sin categoría</option>
                     {categories.map((category) => (
                       <option key={category.id} value={category.id}>{category.name}</option>
@@ -234,6 +277,33 @@ export function TransactionsTable({
           </tbody>
         </table>
       </div>
+
+      {quickCategory ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="quick-category-title">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="quick-category-title" className="text-base font-semibold text-card-foreground">Nueva categoría</h3>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setQuickCategory(null)} title="Cerrar">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <Input autoFocus placeholder="Nombre" value={quickCategory.name} onChange={(event) => setQuickCategory({ ...quickCategory, name: event.target.value, error: "" })} />
+              <Select value={quickCategory.type} onChange={(event) => setQuickCategory({ ...quickCategory, type: event.target.value as CategoryType })}>
+                {Object.entries(categoryTypeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </Select>
+              <Input type="color" value={quickCategory.color} onChange={(event) => setQuickCategory({ ...quickCategory, color: event.target.value })} aria-label="Color" />
+              {quickCategory.error ? <p className="text-sm text-danger">{quickCategory.error}</p> : null}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setQuickCategory(null)}>Cancelar</Button>
+              <Button type="button" onClick={() => void createQuickCategory()} disabled={savingId === quickCategory.transactionId}>Crear y asignar</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

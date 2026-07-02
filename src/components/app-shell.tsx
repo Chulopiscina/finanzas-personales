@@ -26,8 +26,11 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/movements", label: "Movimientos", icon: WalletCards },
-  { href: "/upload", label: "Subir CSV", icon: Upload },
-  { href: "/statistics", label: "Estadísticas", icon: BarChart3 },
+  { href: "/upload", label: "Subir CSV/PDF", icon: Upload },
+  { href: "/accounts", label: "Cuentas", icon: FolderKanban },
+  { href: "/categories", label: "Categor\u00edas", icon: Tags },
+  { href: "/statistics", label: "Estad\u00edsticas", icon: BarChart3 },
+  { href: "/statements", label: "Extractos subidos", icon: FileText },
   { href: "/profile", label: "Perfil", icon: UserRound }
 ];
 
@@ -88,7 +91,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
             )}
           >
             <Shield className="h-4 w-4" aria-hidden="true" />
-            Administración
+            {"Administraci\u00f3n"}
           </Link>
         ) : null}
       </nav>
@@ -103,7 +106,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
         </div>
         <Button type="button" variant="ghost" className="w-full justify-start" onClick={logout}>
           <LogOut className="h-4 w-4" aria-hidden="true" />
-          Cerrar sesión
+          {"Cerrar sesi\u00f3n"}
         </Button>
       </div>
     </aside>
@@ -119,7 +122,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
             <CircleDollarSign className="h-5 w-5 text-accent" aria-hidden="true" />
             <span className="text-sm font-semibold">Finanzas</span>
           </div>
-          <Button type="button" variant="ghost" size="icon" onClick={() => setOpen(true)} title="Abrir menú">
+          <Button type="button" variant="ghost" size="icon" onClick={() => setOpen(true)} title={"Abrir men\u00fa"}>
             <Menu className="h-5 w-5" />
           </Button>
         </header>
@@ -133,7 +136,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
                 size="icon"
                 className="absolute right-3 top-3"
                 onClick={() => setOpen(false)}
-                title="Cerrar menú"
+                title={"Cerrar men\u00fa"}
               >
                 <X className="h-5 w-5" />
               </Button>
