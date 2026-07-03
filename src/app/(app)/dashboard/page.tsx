@@ -1,5 +1,6 @@
 import {
   ArrowDownCircle,
+  ArrowLeftRight,
   ArrowUpCircle,
   CalendarClock,
   Landmark,
@@ -54,6 +55,7 @@ export default async function DashboardPage({ searchParams }: Props) {
         <MetricCard title="Gastos totales" value={formatCurrency(data.metrics.totalExpenses)} icon={ArrowDownCircle} tone="danger" />
         <MetricCard title="Ahorro acumulado" value={formatCurrency(data.metrics.accumulatedSavings)} icon={PiggyBank} tone="success" />
         <MetricCard title="Ahorro mensual" value={formatCurrency(data.metrics.monthlySavings)} icon={TrendingUp} />
+        <MetricCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} icon={ArrowLeftRight} />
         <MetricCard title="Transacciones" value={String(data.metrics.transactionCount)} icon={ReceiptText} />
         <MetricCard title="Sin categoría" value={String(data.metrics.uncategorizedCount)} icon={ReceiptText} />
         <MetricCard

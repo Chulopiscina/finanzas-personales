@@ -1,6 +1,6 @@
 ﻿import { AccountsManager } from "@/components/accounts-manager";
 import { getSessionUser } from "@/lib/auth";
-import { ensureDefaultAccount, toNumber } from "@/lib/finance";
+import { accountBalance, ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 export default async function AccountsPage() {
@@ -23,25 +23,14 @@ export default async function AccountsPage() {
     })
   ]);
 
-  const totals = new Map<string, { movementTotal: number; latestBalance: number | null }>();
-  for (const transaction of transactions) {
-    const current = totals.get(transaction.accountId) ?? { movementTotal: 0, latestBalance: null };
-    current.movementTotal += toNumber(transaction.amount);
-    if (current.latestBalance === null && transaction.balance !== null) {
-      current.latestBalance = toNumber(transaction.balance);
-    }
-    totals.set(transaction.accountId, current);
-  }
-
   const preparedAccounts = accounts.map((account) => {
     const initialBalance = toNumber(account.initialBalance);
-    const accountTotals = totals.get(account.id) ?? { movementTotal: 0, latestBalance: null };
     return {
       id: account.id,
       name: account.name,
       type: account.type,
       initialBalance,
-      currentBalance: accountTotals.latestBalance ?? initialBalance + accountTotals.movementTotal,
+      currentBalance: accountBalance(account, transactions),
       currency: account.currency,
       color: account.color,
       icon: account.icon,

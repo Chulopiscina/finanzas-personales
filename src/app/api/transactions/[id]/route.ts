@@ -15,6 +15,7 @@ type TransactionBody = {
   type?: TransactionType;
   isInternalTransfer?: boolean;
   internalTransferCounterAccountId?: string | null;
+  counterpartTransactionId?: string | null;
 };
 
 async function authorizeTransaction(id: string) {
@@ -34,6 +35,41 @@ async function authorizeTransaction(id: string) {
 
 function transferTolerance(amount: number) {
   return Math.max(1, Math.abs(amount) * 0.001);
+}
+
+async function linkManualInternalTransferPair(transactionId: string, counterpartId: string) {
+  const [transaction, counterpart] = await Promise.all([
+    prisma.transaction.findUnique({ where: { id: transactionId } }),
+    prisma.transaction.findUnique({ where: { id: counterpartId } })
+  ]);
+
+  if (!transaction || !counterpart || transaction.userId !== counterpart.userId || transaction.accountId === counterpart.accountId) {
+    return null;
+  }
+
+  const groupId = `internal-${[transaction.id, counterpart.id].sort().join("-")}`;
+  await prisma.$transaction([
+    prisma.transaction.update({
+      where: { id: transaction.id },
+      data: {
+        type: TransactionType.TRANSFER,
+        isInternalTransfer: true,
+        internalTransferGroupId: groupId,
+        internalTransferCounterAccountId: counterpart.accountId
+      }
+    }),
+    prisma.transaction.update({
+      where: { id: counterpart.id },
+      data: {
+        type: TransactionType.TRANSFER,
+        isInternalTransfer: true,
+        internalTransferGroupId: groupId,
+        internalTransferCounterAccountId: transaction.accountId
+      }
+    })
+  ]);
+
+  return groupId;
 }
 
 async function pairManualInternalTransfer(transactionId: string) {
@@ -100,6 +136,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const body = await readJson<TransactionBody>(request);
+    let explicitCounterpartId: string | null = null;
     if (body.accountId) {
       const account = await prisma.account.findUnique({ where: { id: body.accountId } });
       if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
@@ -112,6 +149,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!counterAccount || counterAccount.userId !== authorized.transaction.userId || counterAccount.id === (body.accountId ?? authorized.transaction.accountId)) {
         return NextResponse.json({ error: "La cuenta contraria no es valida." }, { status: 400 });
       }
+    }
+
+    if (body.counterpartTransactionId) {
+      const counterpart = await prisma.transaction.findUnique({ where: { id: body.counterpartTransactionId } });
+      const nextAccountId = body.accountId ?? authorized.transaction.accountId;
+      if (!counterpart || counterpart.userId !== authorized.transaction.userId || counterpart.id === id || counterpart.accountId === nextAccountId) {
+        return NextResponse.json({ error: "La contrapartida seleccionada no es valida." }, { status: 400 });
+      }
+
+      if (body.internalTransferCounterAccountId && body.internalTransferCounterAccountId !== counterpart.accountId) {
+        return NextResponse.json({ error: "La contrapartida no pertenece a la cuenta seleccionada." }, { status: 400 });
+      }
+
+      explicitCounterpartId = counterpart.id;
+      body.internalTransferCounterAccountId = counterpart.accountId;
     }
 
     if (body.categoryId) {
@@ -140,7 +192,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     });
 
     if (body.isInternalTransfer === true) {
-      await pairManualInternalTransfer(updated.id);
+      if (explicitCounterpartId) {
+        await linkManualInternalTransferPair(updated.id, explicitCounterpartId);
+      } else {
+        await pairManualInternalTransfer(updated.id);
+      }
     }
 
     if (body.isInternalTransfer === false && authorized.transaction.internalTransferGroupId) {

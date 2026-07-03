@@ -40,6 +40,7 @@ type QuickCategoryState = {
 type InternalTransferState = {
   transactionId: string;
   counterAccountId: string;
+  counterpartTransactionId: string;
   error: string;
 };
 
@@ -171,7 +172,12 @@ export function TransactionsTable({
 
   function openInternalTransfer(tx: TransactionRow) {
     const defaultCounter = accounts.find((account) => account.id !== tx.accountId)?.id ?? "";
-    setInternalTransfer({ transactionId: tx.id, counterAccountId: tx.internalTransferCounterAccountId ?? defaultCounter, error: "" });
+    setInternalTransfer({
+      transactionId: tx.id,
+      counterAccountId: tx.internalTransferCounterAccountId ?? defaultCounter,
+      counterpartTransactionId: "",
+      error: ""
+    });
   }
 
   async function saveInternalTransfer() {
@@ -183,14 +189,32 @@ export function TransactionsTable({
 
     const updated = await patchTransaction(internalTransfer.transactionId, {
       isInternalTransfer: true,
-      internalTransferCounterAccountId: internalTransfer.counterAccountId
+      internalTransferCounterAccountId: internalTransfer.counterAccountId,
+      counterpartTransactionId: internalTransfer.counterpartTransactionId || null
     });
     if (!updated) {
       setInternalTransfer({ ...internalTransfer, error: "No se pudo marcar como transferencia interna." });
       return;
     }
 
-    setTransactions((current) => current.map((tx) => (tx.id === updated.id ? { ...tx, ...updated } : tx)));
+    setTransactions((current) =>
+      current.map((tx) => {
+        if (tx.id === updated.id) {
+          return { ...tx, ...updated };
+        }
+
+        if (internalTransfer.counterpartTransactionId && tx.id === internalTransfer.counterpartTransactionId) {
+          return {
+            ...tx,
+            type: "TRANSFER",
+            isInternalTransfer: true,
+            internalTransferCounterAccountId: updated.accountId
+          };
+        }
+
+        return tx;
+      })
+    );
     setInternalTransfer(null);
   }
 
@@ -202,6 +226,26 @@ export function TransactionsTable({
     if (!updated) return;
     setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, ...updated } : item)));
   }
+  const internalTransferSource = internalTransfer
+    ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null
+    : null;
+  const counterpartOptions = internalTransferSource
+    ? transactions
+        .filter(
+          (tx) =>
+            tx.id !== internalTransferSource.id &&
+            tx.accountId === internalTransfer?.counterAccountId &&
+            Math.sign(tx.amount) === -Math.sign(internalTransferSource.amount)
+        )
+        .sort((left, right) => {
+          const leftAmountDiff = Math.abs(Math.abs(left.amount) - Math.abs(internalTransferSource.amount));
+          const rightAmountDiff = Math.abs(Math.abs(right.amount) - Math.abs(internalTransferSource.amount));
+          if (leftAmountDiff !== rightAmountDiff) return leftAmountDiff - rightAmountDiff;
+          return Math.abs(new Date(left.date).getTime() - new Date(internalTransferSource.date).getTime()) - Math.abs(new Date(right.date).getTime() - new Date(internalTransferSource.date).getTime());
+        })
+        .slice(0, 12)
+    : [];
+
   async function remove(id: string) {
     const confirmed = window.confirm("¿Eliminar este movimiento? Esta acción no se puede deshacer.");
     if (!confirmed) return;
@@ -318,7 +362,7 @@ export function TransactionsTable({
                       </Button>
                     ) : (
                       <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>
-                        Transferencia interna
+                        Marcar como interna
                       </Button>
                     )}
                     <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar">
@@ -369,15 +413,39 @@ export function TransactionsTable({
               </Button>
             </div>
             <div className="mt-4 space-y-3">
-              <p className="text-sm text-muted-foreground">Elige la otra cuenta propia de esta transferencia. No contará como gasto ni ingreso real.</p>
-              <Select value={internalTransfer.counterAccountId} onChange={(event) => setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, error: "" })}>
-                <option value="">Seleccionar cuenta</option>
+              <p className="text-sm text-muted-foreground">Elige la otra cuenta propia. Si ves el movimiento contrario, vinculalo para que ambos queden unidos.</p>
+              {internalTransferSource ? (
+                <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <p className="font-medium text-card-foreground">{formatCurrency(internalTransferSource.amount)} - {internalTransferSource.concept}</p>
+                  <p>{formatDate(internalTransferSource.date)} - {internalTransferSource.account?.name ?? "Cuenta"}</p>
+                </div>
+              ) : null}
+              <Select
+                value={internalTransfer.counterAccountId}
+                onChange={(event) => setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, counterpartTransactionId: "", error: "" })}
+              >
+                <option value="">Seleccionar cuenta origen/destino</option>
                 {accounts
-                  .filter((account) => account.id !== transactions.find((tx) => tx.id === internalTransfer.transactionId)?.accountId)
+                  .filter((account) => account.id !== internalTransferSource?.accountId)
                   .map((account) => (
                     <option key={account.id} value={account.id}>{account.name}</option>
                   ))}
               </Select>
+              <Select
+                value={internalTransfer.counterpartTransactionId}
+                onChange={(event) => setInternalTransfer({ ...internalTransfer, counterpartTransactionId: event.target.value, error: "" })}
+                disabled={!internalTransfer.counterAccountId || counterpartOptions.length === 0}
+              >
+                <option value="">Sin contrapartida exacta</option>
+                {counterpartOptions.map((tx) => (
+                  <option key={tx.id} value={tx.id}>
+                    {formatDate(tx.date)} - {formatCurrency(tx.amount)} - {tx.concept.slice(0, 80)}
+                  </option>
+                ))}
+              </Select>
+              {counterpartOptions.length === 0 && internalTransfer.counterAccountId ? (
+                <p className="text-xs text-muted-foreground">No he encontrado movimientos de signo contrario en esa cuenta. Puedes marcarla igualmente.</p>
+              ) : null}
               {internalTransfer.error ? <p className="text-sm text-danger">{internalTransfer.error}</p> : null}
             </div>
             <div className="mt-5 flex justify-end gap-2">

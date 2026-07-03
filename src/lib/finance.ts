@@ -180,6 +180,11 @@ function transferCandidate(tx: TransactionWithCategory) {
   return tx.type === TransactionType.TRANSFER || internalTransferConceptPattern.test(concept);
 }
 
+function possibleInternalTransferPair(outgoing: TransactionWithCategory, incoming: TransactionWithCategory) {
+  const outAmount = Math.abs(toNumber(outgoing.amount));
+  return transferCandidate(outgoing) || transferCandidate(incoming) || outAmount >= 1000;
+}
+
 function closeEnoughAmount(left: number, right: number) {
   const diff = Math.abs(Math.abs(left) - Math.abs(right));
   return diff <= Math.max(1, Math.abs(left) * 0.001);
@@ -197,7 +202,7 @@ export async function detectAndMarkInternalTransfers(userId: string) {
     orderBy: [{ date: "asc" }, { createdAt: "asc" }]
   });
 
-  const candidates = transactions.filter((tx) => transferCandidate(tx) && toNumber(tx.amount) !== 0);
+  const candidates = transactions.filter((tx) => toNumber(tx.amount) !== 0);
   const used = new Set<string>();
   const updates: Array<{ outId: string; inId: string; outAccountId: string; inAccountId: string }> = [];
 
@@ -214,7 +219,8 @@ export async function detectAndMarkInternalTransfers(userId: string) {
         !used.has(candidate.id) &&
         candidate.accountId !== outgoing.accountId &&
         closeEnoughAmount(outAmount, inAmount) &&
-        closeEnoughDate(outgoing.date, candidate.date)
+        closeEnoughDate(outgoing.date, candidate.date) &&
+        possibleInternalTransferPair(outgoing, candidate)
       );
     });
 
@@ -275,16 +281,30 @@ export async function ensureDefaultAccount(userId: string) {
   });
 }
 
-function accountBalance(account: Account, transactions: TransactionWithCategory[]) {
-  const latestWithBalance = transactions.find((tx) => tx.accountId === account.id && tx.balance !== null);
+export function accountBalance(account: Account, transactions: Array<Pick<Transaction, "accountId" | "amount" | "balance">>) {
+  const accountTransactions = transactions.filter((tx) => tx.accountId === account.id);
+  const latestWithBalance = accountTransactions.find((tx) => tx.balance !== null);
   if (latestWithBalance?.balance !== null && latestWithBalance?.balance !== undefined) {
     return toNumber(latestWithBalance.balance);
   }
 
-  const movementTotal = transactions
-    .filter((tx) => tx.accountId === account.id)
-    .reduce((sum, tx) => sum + toNumber(tx.amount), 0);
+  const movementTotal = accountTransactions.reduce((sum, tx) => sum + toNumber(tx.amount), 0);
   return toNumber(account.initialBalance) + movementTotal;
+}
+
+function internalTransferTotal(transactions: TransactionWithCategory[], selectedAccount: Account | null) {
+  const internal = transactions.filter((tx) => tx.isInternalTransfer);
+  if (selectedAccount) {
+    return internal.reduce((sum, tx) => sum + Math.abs(toNumber(tx.amount)), 0);
+  }
+
+  const grouped = new Map<string, number>();
+  for (const tx of internal) {
+    const key = tx.internalTransferGroupId ?? tx.id;
+    grouped.set(key, Math.max(grouped.get(key) ?? 0, Math.abs(toNumber(tx.amount))));
+  }
+
+  return [...grouped.values()].reduce((sum, amount) => sum + amount, 0);
 }
 
 export async function getDashboardData(userId: string, accountId?: string | null) {
@@ -299,10 +319,15 @@ export async function getDashboardData(userId: string, accountId?: string | null
   const activeAccountIds = accounts.filter((account) => !account.isArchived).map((account) => account.id);
   const accountFilter = selectedAccount ? [selectedAccount.id] : activeAccountIds;
 
-  const [transactions, lastImport, recentImports] = await Promise.all([
+  const [transactions, balanceTransactions, lastImport, recentImports] = await Promise.all([
     prisma.transaction.findMany({
       where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } },
       include: { category: true, account: true },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }]
+    }),
+    prisma.transaction.findMany({
+      where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } },
+      select: { accountId: true, amount: true, balance: true },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }]
     }),
     prisma.importHistory.findFirst({
@@ -321,8 +346,9 @@ export async function getDashboardData(userId: string, accountId?: string | null
   const totalExpenses = transactions.reduce((sum, tx) => sum + signedExpense(tx), 0);
   const savings = totalIncome - totalExpenses;
   const currentBalance = selectedAccount
-    ? accountBalance(selectedAccount, transactions)
-    : accounts.filter((account) => !account.isArchived).reduce((sum, account) => sum + accountBalance(account, transactions), 0);
+    ? accountBalance(selectedAccount, balanceTransactions)
+    : accounts.filter((account) => !account.isArchived).reduce((sum, account) => sum + accountBalance(account, balanceTransactions), 0);
+  const transferTotal = internalTransferTotal(transactions, selectedAccount);
   const monthly = buildMonthlyRows(transactions);
   const categories = categoryRows(transactions);
   const averageMonthlyExpense =
@@ -349,6 +375,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
       monthlySavings: currentMonthSavings,
       transactionCount: transactions.length,
       averageMonthlyExpense,
+      internalTransferTotal: transferTotal,
       topCategory: categories[0]?.name ?? "Sin datos",
       lastUpdate: lastImport?.createdAt?.toISOString() ?? null,
       uncategorizedCount

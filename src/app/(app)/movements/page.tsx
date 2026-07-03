@@ -1,6 +1,6 @@
 import { TransactionsTable } from "@/components/transactions-table";
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
-import { ensureDefaultAccount, toNumber } from "@/lib/finance";
+import { detectAndMarkInternalTransfers, ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
@@ -16,6 +16,7 @@ export default async function MovementsPage({ searchParams }: Props) {
   const params = await searchParams;
   const userId = getAuthorizedUserId(session.user, params?.userId);
   await ensureDefaultAccount(userId);
+  await detectAndMarkInternalTransfers(userId);
   const [transactions, categories, accounts, imports] = await Promise.all([
     prisma.transaction.findMany({
       where: {
