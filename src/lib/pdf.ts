@@ -243,6 +243,61 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
   };
 }
 
+function isCaixaBankPdf(text: string) {
+  return /\bIBAN:\s*ES\d{22}\b/i.test(text) && /Saldo disponible:/i.test(text) && /Concepto\s+Fecha\s+Importe\s+Saldo/i.test(text);
+}
+
+function parseCaixaBankRecord(line: string, index: number): ParsedMovement | null {
+  const normalized = normalizeLine(line);
+  if (/^(?:IBAN:|Periodo:|Concepto\s+Fecha\s+Importe\s+Saldo|\d+\/\d+|--\s*\d+\s+of\s+\d+\s*--)/i.test(normalized)) {
+    return null;
+  }
+
+  const rowMatch = normalized.match(/^(.+?)\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})\s+([-+]?\d{1,3}(?:\.\d{3})*,\d{2}|[-+]?\d+,\d{2})\s*€\s+([-+]?\d{1,3}(?:\.\d{3})*,\d{2}|[-+]?\d+,\d{2})\s*€$/i);
+  if (!rowMatch) {
+    return null;
+  }
+
+  const concept = rowMatch[1].replace(/\s+/g, " ").trim();
+  const date = parseSpanishDate(rowMatch[2]);
+  const amount = parseSpanishAmount(rowMatch[3]);
+  const balance = parseSpanishAmount(rowMatch[4]);
+
+  if (!concept || !Number.isFinite(amount)) {
+    throw new Error(`Importe invalido en el movimiento CaixaBank ${index + 1}.`);
+  }
+
+  const classification = classify(concept, amount);
+  const type = /\bbizum\s+rebut\b/i.test(concept) && amount > 0 ? "INCOME" : classification.type;
+
+  return {
+    date,
+    concept,
+    amount,
+    balance: Number.isFinite(balance) ? balance : null,
+    type,
+    categoryName: classification.categoryName,
+    sourceHash: movementHash(date, concept, amount, Number.isFinite(balance) ? balance : null, "caixabank-pdf"),
+    raw: {
+      source: "caixabank-pdf",
+      record: line,
+      extractedAt: new Date().toISOString()
+    }
+  } satisfies ParsedMovement;
+}
+
+export function parseCaixaBankPdfText(text: string) {
+  const lines = text.split(/\r?\n/).map(normalizeLine).filter(Boolean);
+  const movements = lines
+    .map((line, index) => parseCaixaBankRecord(line, index))
+    .filter((movement): movement is ParsedMovement => movement !== null);
+
+  if (movements.length === 0) {
+    throw new Error("No he podido detectar movimientos en el PDF de CaixaBank. Debe contener columnas Concepto, Fecha, Importe y Saldo.");
+  }
+
+  return movements;
+}
 function isIngPdf(text: string) {
   return /\bING BANK\b/i.test(text) && /Certificado de Movimientos/i.test(text);
 }
@@ -341,6 +396,10 @@ export async function parseBankPdf(buffer: Buffer) {
   const text = await extractPdfText(buffer);
   if (isIngPdf(text)) {
     return parseINGPdfText(text);
+  }
+
+  if (isCaixaBankPdf(text)) {
+    return parseCaixaBankPdfText(text);
   }
 
   const lines = normalizePdfText(text);
