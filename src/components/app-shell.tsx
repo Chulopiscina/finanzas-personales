@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
+  CalendarCheck,
   CircleDollarSign,
   FileText,
   FolderKanban,
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/upload", label: "Subir CSV/PDF", icon: Upload },
   { href: "/accounts", label: "Cuentas", icon: FolderKanban },
   { href: "/categories", label: "Categor\u00edas", icon: Tags },
+  { href: "/planning", label: "Planificaci\u00f3n", icon: CalendarCheck },
   { href: "/statistics", label: "Estad\u00edsticas", icon: BarChart3 },
   { href: "/statements", label: "Extractos subidos", icon: FileText },
   { href: "/profile", label: "Perfil", icon: UserRound }

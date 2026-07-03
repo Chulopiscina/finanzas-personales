@@ -43,6 +43,28 @@ enum CategoryType {
   OTHER
 }
 
+enum PlanningGoalType {
+  FIXED_EXPENSE
+  VARIABLE_EXPENSE
+  SAVINGS
+  INVESTMENT
+  DEBT
+  OTHER
+}
+
+enum PlanningPeriod {
+  MONTHLY
+  ANNUAL
+  CUSTOM
+}
+
+enum PlanningStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
 model User {
   id               String           @id @default(cuid())
   name             String
@@ -58,6 +80,7 @@ model User {
   sessions         Session[]
   accounts         Account[]
   categories       Category[]
+  planningGoals    PlanningGoal[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -78,6 +101,7 @@ model Account {
   updatedAt     DateTime        @updatedAt
   transactions  Transaction[]
   imports       ImportHistory[]
+  planningGoals PlanningGoal[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -93,6 +117,7 @@ model Category {
   icon         String
   isArchived   Boolean       @default(false)
   transactions Transaction[]
+  planningGoals PlanningGoalCategory[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -134,6 +159,41 @@ model Transaction {
   @@index([type])
   @@index([isInternalTransfer])
   @@index([internalTransferGroupId])
+}
+
+model PlanningGoal {
+  id           String              @id @default(cuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId    String?
+  account      Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  name         String
+  type         PlanningGoalType
+  targetAmount Decimal             @db.Decimal(12, 2)
+  period       PlanningPeriod      @default(MONTHLY)
+  periodStart  DateTime?
+  periodEnd    DateTime?
+  color        String?
+  icon         String?
+  status       PlanningStatus      @default(ACTIVE)
+  showInDashboard Boolean          @default(false)
+  categories   PlanningGoalCategory[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, showInDashboard])
+  @@index([accountId])
+}
+
+model PlanningGoalCategory {
+  goalId     String
+  categoryId String
+  goal       PlanningGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  category   Category     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, categoryId])
+  @@index([categoryId])
 }
 
 model MonthlySummary {
