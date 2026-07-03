@@ -397,6 +397,9 @@ export function TransactionsTable({
                     ) : (
                       <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>Marcar como transferencia interna</Button>
                     )}
+                    <Button type="button" variant="secondary" size="sm" onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id} className="font-medium">
+                      <Target className="h-4 w-4" /> Asociar a objetivo
+                    </Button>
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -407,9 +410,6 @@ export function TransactionsTable({
                       )) : <span className="text-xs text-muted-foreground">Sin objetivo</span>}
                     </div>
                     {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="text-xs text-warning">Asociada, no cuenta salvo confirmación.</p> : null}
-                    <Button type="button" variant="secondary" size="sm" onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
-                      <Target className="h-4 w-4" /> Asociar a objetivo
-                    </Button>
                   </div>
                 </td>
                 <td className="max-w-xs px-4 py-3 text-muted-foreground">{tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}</td>
