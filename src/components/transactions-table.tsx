@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Target, Trash2, X } from "lucide-react";
+import { HandCoins, Search, Target, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,11 @@ type ImportOption = { id: string; fileName: string };
 type GoalStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED";
 type PlanningGoalOption = { id: string; name: string; color: string | null; status: GoalStatus };
 type PlanningGoalAssociation = { goalId: string; includeInternalTransfer: boolean; goal: PlanningGoalOption };
+
+type ReimbursementAssociation = {
+  expenseId: string;
+  expense: { id: string; date: string | Date; concept: string; cleanDescription: string | null; amount: unknown; account: Account | null; category: Category | null };
+};
 
 type TransactionRow = {
   id: string;
@@ -29,6 +34,8 @@ type TransactionRow = {
   account: Account | null;
   importHistory: ImportOption | null;
   planningGoals: PlanningGoalAssociation[];
+  reimbursementLinks: ReimbursementAssociation[];
+  reimbursedByLinks: Array<{ reimbursementId: string; reimbursement: { concept: string; cleanDescription: string | null; amount: unknown } }>;
   isInternalTransfer: boolean;
   internalTransferCounterAccountId: string | null;
 };
@@ -52,6 +59,12 @@ type PlanningAssociationState = {
   transactionId: string;
   selectedGoalIds: string[];
   includeInternalTransfer: boolean;
+  error: string;
+};
+
+type ReimbursementState = {
+  transactionId: string;
+  selectedExpenseIds: string[];
   error: string;
 };
 
@@ -90,15 +103,17 @@ export function TransactionsTable({
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
   const [internalTransfer, setInternalTransfer] = useState<InternalTransferState | null>(null);
   const [planningAssociation, setPlanningAssociation] = useState<PlanningAssociationState | null>(null);
+  const [reimbursement, setReimbursement] = useState<ReimbursementState | null>(null);
   const [counterpartSearch, setCounterpartSearch] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return transactions.filter((tx) => {
       const goalNames = tx.planningGoals.map((item) => item.goal.name).join(" ");
+      const reimbursementText = tx.reimbursementLinks.length > 0 ? "reembolso" : "";
       const matchesQuery =
         !q ||
-        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames]
+        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames, reimbursementText]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -278,9 +293,34 @@ export function TransactionsTable({
     setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, planningGoals: payload.planningGoals as PlanningGoalAssociation[] } : item)));
     setPlanningAssociation(null);
   }
+  function openReimbursement(tx: TransactionRow) {
+    setReimbursement({ transactionId: tx.id, selectedExpenseIds: tx.reimbursementLinks.map((item) => item.expenseId), error: "" });
+  }
+
+  async function saveReimbursement() {
+    if (!reimbursement) return;
+    const tx = transactions.find((item) => item.id === reimbursement.transactionId);
+    if (!tx) return;
+    setSavingId(tx.id);
+    const response = await fetch(`/api/transactions/${tx.id}/reimbursements`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expenseIds: reimbursement.selectedExpenseIds })
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSavingId(null);
+    if (!response.ok || !payload.reimbursements) {
+      setReimbursement({ ...reimbursement, error: payload.error ?? "No se pudo actualizar el reembolso." });
+      return;
+    }
+    setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, reimbursementLinks: payload.reimbursements as ReimbursementAssociation[] } : item)));
+    setReimbursement(null);
+  }
 
   const internalTransferSource = internalTransfer ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null : null;
   const planningSource = planningAssociation ? transactions.find((tx) => tx.id === planningAssociation.transactionId) ?? null : null;
+  const reimbursementSource = reimbursement ? transactions.find((tx) => tx.id === reimbursement.transactionId) ?? null : null;
+  const reimbursementCandidates = reimbursementSource ? transactions.filter((tx) => tx.type === "EXPENSE" && !tx.isInternalTransfer && tx.id !== reimbursementSource.id).slice(0, 80) : [];
   const counterpartQuery = counterpartSearch.trim().toLowerCase();
   const counterpartOptions = internalTransferSource
     ? transactions
@@ -389,17 +429,22 @@ export function TransactionsTable({
                 <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
                 <td className="px-4 py-3">
                   <div className="flex min-w-52 flex-col items-start gap-2">
-                    <Badge tone={tx.isInternalTransfer ? "neutral" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
-                      {tx.isInternalTransfer ? "Transferencia interna" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
+                    <Badge tone={tx.isInternalTransfer ? "neutral" : tx.reimbursementLinks.length > 0 ? "success" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
+                      {tx.isInternalTransfer ? "Transferencia interna" : tx.reimbursementLinks.length > 0 ? "Reembolso" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
                     </Badge>
                     {tx.isInternalTransfer ? (
                       <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>Quitar interna</Button>
                     ) : (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>Marcar como transferencia interna</Button>
+                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>{tx.type === "INCOME" ? "Movimiento entre cuentas/efectivo" : "Marcar como transferencia interna"}</Button>
                     )}
                     <Button type="button" variant="secondary" size="sm" onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id} className="font-medium">
                       <Target className="h-4 w-4" /> Asociar a objetivo
                     </Button>
+                    {tx.type === "INCOME" && tx.amount > 0 && !tx.isInternalTransfer ? (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => openReimbursement(tx)} disabled={savingId === tx.id} className="font-medium">
+                        <HandCoins className="h-4 w-4" /> {tx.reimbursementLinks.length > 0 ? "Editar reembolso" : "Marcar como reembolso"}
+                      </Button>
+                    ) : null}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -490,6 +535,42 @@ export function TransactionsTable({
         </div>
       ) : null}
 
+      {reimbursement ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="reimbursement-title">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="reimbursement-title" className="text-base font-semibold text-card-foreground">Marcar como reembolso</h3>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setReimbursement(null)} title="Cerrar"><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="mt-4 space-y-4">
+              {reimbursementSource ? (
+                <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <p className="font-medium text-card-foreground">{formatCurrency(reimbursementSource.amount)} - {reimbursementSource.cleanDescription ?? reimbursementSource.concept}</p>
+                  <p>{formatDate(reimbursementSource.date)} - {reimbursementSource.account?.name ?? "Cuenta"}</p>
+                </div>
+              ) : null}
+              <p className="text-sm text-muted-foreground">Selecciona uno o varios gastos a los que corresponde este ingreso. Si no seleccionas ninguno, se quitará la marca de reembolso.</p>
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {reimbursementCandidates.length === 0 ? <p className="text-sm text-muted-foreground">No hay gastos candidatos visibles.</p> : null}
+                {reimbursementCandidates.map((expense) => (
+                  <label key={expense.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                    <span className="min-w-0">
+                      <span className="block truncate text-card-foreground">{expense.cleanDescription ?? expense.concept}</span>
+                      <span className="block text-xs text-muted-foreground">{formatDate(expense.date)} · {expense.account?.name ?? "Cuenta"} · {formatCurrency(expense.amount)}</span>
+                    </span>
+                    <input type="checkbox" checked={reimbursement.selectedExpenseIds.includes(expense.id)} onChange={() => setReimbursement({ ...reimbursement, selectedExpenseIds: toggleId(reimbursement.selectedExpenseIds, expense.id), error: "" })} />
+                  </label>
+                ))}
+              </div>
+              {reimbursement.error ? <p className="text-sm text-danger">{reimbursement.error}</p> : null}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setReimbursement(null)}>Cancelar</Button>
+              <Button type="button" onClick={() => void saveReimbursement()} disabled={savingId === reimbursement.transactionId}>Guardar reembolso</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {internalTransfer ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="internal-transfer-title">
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl">

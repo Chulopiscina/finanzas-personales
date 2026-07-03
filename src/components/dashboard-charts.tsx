@@ -74,8 +74,8 @@ export function DashboardCharts({
       <section className="rounded-lg border border-border bg-card p-4 shadow-sm xl:col-span-3">
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-card-foreground">Gastos por categoría</h2>
-            <p className="text-sm text-muted-foreground">Importes reales, sin transferencias internas</p>
+            <h2 className="text-base font-semibold text-card-foreground">Gastos netos por categoría</h2>
+            <p className="text-sm text-muted-foreground">Gasto neto por categoría, descontando reembolsos vinculados</p>
           </div>
           <p className="text-sm font-medium text-card-foreground">{formatCurrency(categoryTotal)}</p>
         </div>
@@ -139,7 +139,7 @@ export function DashboardCharts({
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
           <SummaryPill label="Ingresos" value={formatCurrency(latestIncome)} tone="success" />
-          <SummaryPill label="Gastos" value={formatCurrency(latestExpenses)} tone="danger" />
+          <SummaryPill label="Gastos netos" value={formatCurrency(latestExpenses)} tone="danger" />
           <SummaryPill label="Diferencia" value={formatCurrency(latestDifference)} tone={latestDifference >= 0 ? "success" : "danger"} />
         </div>
       </section>
@@ -148,9 +148,9 @@ export function DashboardCharts({
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-card-foreground">Evolución mensual</h2>
-            <p className="text-sm text-muted-foreground">Ingresos, gastos reales y ahorro neto</p>
+            <p className="text-sm text-muted-foreground">Ingresos reales, gastos netos y resultado</p>
           </div>
-          <p className="text-xs text-muted-foreground">Las transferencias internas no se incluyen como gasto real.</p>
+          <p className="text-xs text-muted-foreground">Las transferencias internas no se incluyen como gasto ni ingreso real.</p>
         </div>
         <div className="h-72">
           {hasMonthly ? (
@@ -171,7 +171,7 @@ export function DashboardCharts({
                 <YAxis tickFormatter={(value) => `${Number(value) / 1000}k`} tick={CHART_AXIS_STYLE} tickLine={false} axisLine={false} />
                 <Tooltip formatter={(value) => formatCurrency(Number(value))} />
                 <Area dataKey="income" name="Ingresos" stroke="hsl(var(--success))" fill="url(#incomeFill)" strokeWidth={2} />
-                <Area dataKey="expenses" name="Gastos" stroke="hsl(var(--danger))" fill="transparent" strokeWidth={2} />
+                <Area dataKey="expenses" name="Gastos netos" stroke="hsl(var(--danger))" fill="transparent" strokeWidth={2} />
                 <Area dataKey="savings" name="Ahorro" stroke="hsl(var(--accent))" fill="url(#savingsFill)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>

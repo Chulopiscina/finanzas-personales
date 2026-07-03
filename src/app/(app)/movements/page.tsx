@@ -41,7 +41,9 @@ export default async function MovementsPage({ searchParams }: Props) {
         category: true,
         account: true,
         importHistory: { select: { id: true, fileName: true } },
-        planningGoals: { include: { goal: { select: { id: true, name: true, color: true, status: true } } }, orderBy: { createdAt: "asc" } }
+        planningGoals: { include: { goal: { select: { id: true, name: true, color: true, status: true } } }, orderBy: { createdAt: "asc" } },
+        reimbursementLinks: { include: { expense: { include: { account: true, category: true } } } },
+        reimbursedByLinks: { include: { reimbursement: { include: { account: true, category: true } } } }
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 500
@@ -85,6 +87,8 @@ export default async function MovementsPage({ searchParams }: Props) {
           account: tx.account,
           importHistory: tx.importHistory,
           planningGoals: tx.planningGoals,
+          reimbursementLinks: tx.reimbursementLinks,
+          reimbursedByLinks: tx.reimbursedByLinks,
           isInternalTransfer: tx.isInternalTransfer,
           internalTransferCounterAccountId: tx.internalTransferCounterAccountId
         }))}

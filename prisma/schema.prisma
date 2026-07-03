@@ -147,6 +147,8 @@ model Transaction {
   internalTransferGroupId String?
   internalTransferCounterAccountId String?
   planningGoals   PlanningGoalTransaction[]
+  reimbursementLinks TransactionReimbursement[] @relation("ReimbursementIncome")
+  reimbursedByLinks   TransactionReimbursement[] @relation("ReimbursementExpense")
   sourceHash      String
   raw             Json?
   createdAt       DateTime        @default(now())
@@ -208,6 +210,17 @@ model PlanningGoalTransaction {
 
   @@id([goalId, transactionId])
   @@index([transactionId])
+}
+
+model TransactionReimbursement {
+  reimbursementId String
+  expenseId       String
+  createdAt       DateTime    @default(now())
+  reimbursement   Transaction @relation("ReimbursementIncome", fields: [reimbursementId], references: [id], onDelete: Cascade)
+  expense         Transaction @relation("ReimbursementExpense", fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@id([reimbursementId, expenseId])
+  @@index([expenseId])
 }
 
 model MonthlySummary {
