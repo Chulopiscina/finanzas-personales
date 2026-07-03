@@ -1,4 +1,4 @@
-﻿import { PlanningManager } from "@/components/planning-manager";
+import { PlanningManager } from "@/components/planning-manager";
 import { getSessionUser } from "@/lib/auth";
 import { ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { getPlanningGoalProgress } from "@/lib/planning";
@@ -17,11 +17,11 @@ export default async function PlanningPage() {
   await ensureDefaultAccount(session.user.id);
   const [goals, progress, accounts, categories] = await Promise.all([
     prisma.planningGoal.findMany({
-      where: { userId: session.user.id, status: { not: "ARCHIVED" } },
+      where: { userId: session.user.id },
       include: { categories: true },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }]
     }),
-    getPlanningGoalProgress(session.user.id),
+    getPlanningGoalProgress(session.user.id, { includeArchived: true }),
     prisma.account.findMany({ where: { userId: session.user.id, isArchived: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ where: { OR: [{ userId: null }, { userId: session.user.id }], isArchived: false }, orderBy: { name: "asc" }, select: { id: true, name: true, color: true } })
   ]);
@@ -45,6 +45,9 @@ export default async function PlanningPage() {
       accountName: item?.accountName ?? null,
       categoryIds: goal.categories.map((category) => category.categoryId),
       categoryNames: item?.categoryNames ?? [],
+      automaticMovementCount: item?.automaticMovementCount ?? 0,
+      manualMovementCount: item?.manualMovementCount ?? 0,
+      movements: item?.movements ?? [],
       color: goal.color ?? "#14b8a6",
       icon: goal.icon ?? "target",
       status: goal.status,

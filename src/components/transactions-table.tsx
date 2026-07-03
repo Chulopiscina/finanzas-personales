@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Trash2, X } from "lucide-react";
+import { Search, Target, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,9 @@ type CategoryType = "INCOME" | "EXPENSE" | "SAVINGS" | "TRANSFER" | "OTHER";
 type Category = { id: string; name: string; color: string; type?: CategoryType };
 type Account = { id: string; name: string; isArchived?: boolean };
 type ImportOption = { id: string; fileName: string };
+type GoalStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED";
+type PlanningGoalOption = { id: string; name: string; color: string | null; status: GoalStatus };
+type PlanningGoalAssociation = { goalId: string; includeInternalTransfer: boolean; goal: PlanningGoalOption };
 
 type TransactionRow = {
   id: string;
@@ -25,6 +28,7 @@ type TransactionRow = {
   accountId: string;
   account: Account | null;
   importHistory: ImportOption | null;
+  planningGoals: PlanningGoalAssociation[];
   isInternalTransfer: boolean;
   internalTransferCounterAccountId: string | null;
 };
@@ -44,6 +48,13 @@ type InternalTransferState = {
   error: string;
 };
 
+type PlanningAssociationState = {
+  transactionId: string;
+  selectedGoalIds: string[];
+  includeInternalTransfer: boolean;
+  error: string;
+};
+
 const categoryTypeLabels: Record<CategoryType, string> = {
   INCOME: "Ingreso",
   EXPENSE: "Gasto",
@@ -52,18 +63,24 @@ const categoryTypeLabels: Record<CategoryType, string> = {
   OTHER: "Otro"
 };
 
+function toggleId(items: string[], id: string) {
+  return items.includes(id) ? items.filter((item) => item !== id) : [...items, id];
+}
+
 export function TransactionsTable({
   initialTransactions,
   categories: initialCategories,
   accounts,
   imports,
+  planningGoals,
   initialFilters
 }: {
   initialTransactions: TransactionRow[];
   categories: Category[];
   accounts: Account[];
   imports: ImportOption[];
-  initialFilters: { accountId: string; categoryId: string; type: string; importId: string };
+  planningGoals: PlanningGoalOption[];
+  initialFilters: { accountId: string; categoryId: string; type: string; importId: string; planningGoalId: string };
 }) {
   const [transactions, setTransactions] = useState(initialTransactions);
   const [categories, setCategories] = useState(initialCategories);
@@ -72,25 +89,34 @@ export function TransactionsTable({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
   const [internalTransfer, setInternalTransfer] = useState<InternalTransferState | null>(null);
+  const [planningAssociation, setPlanningAssociation] = useState<PlanningAssociationState | null>(null);
   const [counterpartSearch, setCounterpartSearch] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return transactions.filter((tx) => {
+      const goalNames = tx.planningGoals.map((item) => item.goal.name).join(" ");
       const matchesQuery =
         !q ||
-        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type]
+        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(q);
+
+      const matchesPlanningGoal =
+        !filters.planningGoalId ||
+        (filters.planningGoalId === "__none" && tx.planningGoals.length === 0) ||
+        (filters.planningGoalId === "__any" && tx.planningGoals.length > 0) ||
+        tx.planningGoals.some((item) => item.goalId === filters.planningGoalId);
 
       return (
         matchesQuery &&
         (!filters.accountId || tx.accountId === filters.accountId) &&
         (!filters.categoryId || tx.categoryId === filters.categoryId) &&
         (!filters.type || tx.type === filters.type) &&
-        (!filters.importId || tx.importHistory?.id === filters.importId)
+        (!filters.importId || tx.importHistory?.id === filters.importId) &&
+        matchesPlanningGoal
       );
     });
   }, [query, transactions, filters]);
@@ -170,7 +196,6 @@ export function TransactionsTable({
     setTransactions((current) => current.map((tx) => (tx.id === id ? { ...tx, cleanDescription } : tx)));
   }
 
-
   function openInternalTransfer(tx: TransactionRow) {
     const defaultCounter = accounts.find((account) => account.id !== tx.accountId)?.id ?? "";
     setCounterpartSearch("");
@@ -201,19 +226,10 @@ export function TransactionsTable({
 
     setTransactions((current) =>
       current.map((tx) => {
-        if (tx.id === updated.id) {
-          return { ...tx, ...updated };
-        }
-
+        if (tx.id === updated.id) return { ...tx, ...updated };
         if (internalTransfer.counterpartTransactionId && tx.id === internalTransfer.counterpartTransactionId) {
-          return {
-            ...tx,
-            type: "TRANSFER",
-            isInternalTransfer: true,
-            internalTransferCounterAccountId: updated.accountId
-          };
+          return { ...tx, type: "TRANSFER", isInternalTransfer: true, internalTransferCounterAccountId: updated.accountId };
         }
-
         return tx;
       })
     );
@@ -221,39 +237,59 @@ export function TransactionsTable({
   }
 
   async function clearInternalTransfer(tx: TransactionRow) {
-    const updated = await patchTransaction(tx.id, {
-      isInternalTransfer: false,
-      internalTransferCounterAccountId: null
-    });
+    const updated = await patchTransaction(tx.id, { isInternalTransfer: false, internalTransferCounterAccountId: null });
     if (!updated) return;
     setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, ...updated } : item)));
   }
-  const internalTransferSource = internalTransfer
-    ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null
-    : null;
+
+  function openPlanningAssociation(tx: TransactionRow) {
+    setPlanningAssociation({
+      transactionId: tx.id,
+      selectedGoalIds: tx.planningGoals.map((item) => item.goalId),
+      includeInternalTransfer: tx.planningGoals.some((item) => item.includeInternalTransfer),
+      error: ""
+    });
+  }
+
+  async function savePlanningAssociation() {
+    if (!planningAssociation) return;
+    const tx = transactions.find((item) => item.id === planningAssociation.transactionId);
+    if (!tx) return;
+
+    setSavingId(tx.id);
+    const response = await fetch(`/api/transactions/${tx.id}/planning`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        goals: planningAssociation.selectedGoalIds.map((id) => ({
+          id,
+          includeInternalTransfer: tx.isInternalTransfer ? planningAssociation.includeInternalTransfer : false
+        }))
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSavingId(null);
+
+    if (!response.ok || !payload.planningGoals) {
+      setPlanningAssociation({ ...planningAssociation, error: payload.error ?? "No se pudieron actualizar los objetivos." });
+      return;
+    }
+
+    setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, planningGoals: payload.planningGoals as PlanningGoalAssociation[] } : item)));
+    setPlanningAssociation(null);
+  }
+
+  const internalTransferSource = internalTransfer ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null : null;
+  const planningSource = planningAssociation ? transactions.find((tx) => tx.id === planningAssociation.transactionId) ?? null : null;
   const counterpartQuery = counterpartSearch.trim().toLowerCase();
   const counterpartOptions = internalTransferSource
     ? transactions
         .filter((tx) => {
-          if (
-            tx.id === internalTransferSource.id ||
-            tx.accountId !== internalTransfer?.counterAccountId ||
-            Math.sign(tx.amount) !== -Math.sign(internalTransferSource.amount)
-          ) {
-            return false;
-          }
-
+          if (tx.id === internalTransferSource.id || tx.accountId !== internalTransfer?.counterAccountId || Math.sign(tx.amount) !== -Math.sign(internalTransferSource.amount)) return false;
           const amountDiff = Math.abs(Math.abs(tx.amount) - Math.abs(internalTransferSource.amount));
           const dayDiff = Math.abs(new Date(tx.date).getTime() - new Date(internalTransferSource.date).getTime()) / 86_400_000;
           const closeMatch = amountDiff <= Math.max(1, Math.abs(internalTransferSource.amount) * 0.001) && dayDiff <= 14;
-          const queryMatch =
-            !counterpartQuery ||
-            [tx.concept, tx.cleanDescription, tx.account?.name, formatCurrency(tx.amount), formatDate(tx.date)]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase()
-              .includes(counterpartQuery);
-
+          const queryMatch = !counterpartQuery || [tx.concept, tx.cleanDescription, tx.account?.name, formatCurrency(tx.amount), formatDate(tx.date)].filter(Boolean).join(" ").toLowerCase().includes(counterpartQuery);
           return counterpartQuery ? queryMatch : closeMatch;
         })
         .sort((left, right) => {
@@ -268,7 +304,6 @@ export function TransactionsTable({
   async function remove(id: string) {
     const confirmed = window.confirm("¿Eliminar este movimiento? Esta acción no se puede deshacer.");
     if (!confirmed) return;
-
     const response = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
     if (response.ok) setTransactions((current) => current.filter((tx) => tx.id !== id));
   }
@@ -279,27 +314,21 @@ export function TransactionsTable({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-card-foreground">Movimientos</h2>
-            <p className="text-sm text-muted-foreground">
-              {filtered.length} de {transactions.length} transacciones
-            </p>
+            <p className="text-sm text-muted-foreground">{filtered.length} de {transactions.length} transacciones</p>
           </div>
           <label className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar" className="pl-9" />
           </label>
         </div>
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-5">
           <Select value={filters.accountId} onChange={(event) => setFilters({ ...filters, accountId: event.target.value })}>
             <option value="">Todas las cuentas</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>{account.name}</option>
-            ))}
+            {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
           </Select>
           <Select value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })}>
             <option value="">Todas las categorías</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </Select>
           <Select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
             <option value="">Todos los tipos</option>
@@ -309,15 +338,19 @@ export function TransactionsTable({
           </Select>
           <Select value={filters.importId} onChange={(event) => setFilters({ ...filters, importId: event.target.value })}>
             <option value="">Todos los extractos</option>
-            {imports.map((item) => (
-              <option key={item.id} value={item.id}>{item.fileName}</option>
-            ))}
+            {imports.map((item) => <option key={item.id} value={item.id}>{item.fileName}</option>)}
+          </Select>
+          <Select value={filters.planningGoalId} onChange={(event) => setFilters({ ...filters, planningGoalId: event.target.value })}>
+            <option value="">Todos los objetivos</option>
+            <option value="__none">Sin objetivo</option>
+            <option value="__any">Con objetivo</option>
+            {planningGoals.map((goal) => <option key={goal.id} value={goal.id}>{goal.name}</option>)}
           </Select>
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px] border-collapse text-sm">
+        <table className="w-full min-w-[1320px] border-collapse text-sm">
           <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-4 py-3 font-medium">Fecha</th>
@@ -327,6 +360,7 @@ export function TransactionsTable({
               <th className="px-4 py-3 text-right font-medium">Importe</th>
               <th className="px-4 py-3 text-right font-medium">Saldo</th>
               <th className="px-4 py-3 font-medium">Tipo</th>
+              <th className="px-4 py-3 font-medium">Objetivos</th>
               <th className="px-4 py-3 font-medium">Origen</th>
               <th className="px-4 py-3 text-right font-medium">Acción</th>
             </tr>
@@ -336,59 +370,52 @@ export function TransactionsTable({
               <tr key={tx.id} className="border-t border-border">
                 <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(tx.date)}</td>
                 <td className="max-w-xs px-4 py-3">
-                  <Input
-                    defaultValue={tx.cleanDescription ?? tx.concept}
-                    onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)}
-                    className="h-9"
-                  />
+                  <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-9" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">Original: {tx.concept}</p>
                 </td>
                 <td className="px-4 py-3">
                   <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-40">
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>{account.name}</option>
-                    ))}
+                    {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                   </Select>
                 </td>
                 <td className="px-4 py-3">
                   <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
                     <option value="">Sin categoría</option>
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
+                    {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                     <option value="__new">+ Nueva categoría</option>
                   </Select>
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right font-medium">
-                  <span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span>
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground">
-                  {tx.balance === null ? "-" : formatCurrency(tx.balance)}
-                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-right font-medium"><span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span></td>
+                <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
                 <td className="px-4 py-3">
                   <div className="flex min-w-52 flex-col items-start gap-2">
                     <Badge tone={tx.isInternalTransfer ? "neutral" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
                       {tx.isInternalTransfer ? "Transferencia interna" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
                     </Badge>
                     {tx.isInternalTransfer ? (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>
-                        Quitar interna
-                      </Button>
+                      <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>Quitar interna</Button>
                     ) : (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>
-                        Marcar como transferencia interna
-                      </Button>
+                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>Marcar como transferencia interna</Button>
                     )}
                   </div>
                 </td>
-                <td className="max-w-xs px-4 py-3 text-muted-foreground">
-                  {tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}
+                <td className="px-4 py-3">
+                  <div className="flex min-w-48 flex-col items-start gap-2">
+                    <div className="flex flex-wrap gap-1">
+                      {tx.planningGoals.length > 0 ? tx.planningGoals.map((item) => (
+                        <span key={item.goalId} className="rounded-md border border-border px-2 py-1 text-xs text-card-foreground" style={{ borderColor: item.goal.color ?? undefined }}>{item.goal.name}</span>
+                      )) : <span className="text-xs text-muted-foreground">Sin objetivo</span>}
+                    </div>
+                    {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="text-xs text-warning">Asociada, no cuenta salvo confirmación.</p> : null}
+                    <Button type="button" variant="secondary" size="sm" onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
+                      <Target className="h-4 w-4" /> Asociar a objetivo
+                    </Button>
+                  </div>
                 </td>
+                <td className="max-w-xs px-4 py-3 text-muted-foreground">{tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar"><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 </td>
               </tr>
@@ -402,16 +429,12 @@ export function TransactionsTable({
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl">
             <div className="flex items-center justify-between gap-3">
               <h3 id="quick-category-title" className="text-base font-semibold text-card-foreground">Nueva categoría</h3>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setQuickCategory(null)} title="Cerrar">
-                <X className="h-4 w-4" />
-              </Button>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setQuickCategory(null)} title="Cerrar"><X className="h-4 w-4" /></Button>
             </div>
             <div className="mt-4 space-y-3">
               <Input autoFocus placeholder="Nombre" value={quickCategory.name} onChange={(event) => setQuickCategory({ ...quickCategory, name: event.target.value, error: "" })} />
               <Select value={quickCategory.type} onChange={(event) => setQuickCategory({ ...quickCategory, type: event.target.value as CategoryType })}>
-                {Object.entries(categoryTypeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
+                {Object.entries(categoryTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </Select>
               <Input type="color" value={quickCategory.color} onChange={(event) => setQuickCategory({ ...quickCategory, color: event.target.value })} aria-label="Color" />
               {quickCategory.error ? <p className="text-sm text-danger">{quickCategory.error}</p> : null}
@@ -424,58 +447,74 @@ export function TransactionsTable({
         </div>
       ) : null}
 
+      {planningAssociation ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="planning-association-title">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="planning-association-title" className="text-base font-semibold text-card-foreground">Asociar a objetivo</h3>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setPlanningAssociation(null)} title="Cerrar"><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="mt-4 space-y-4">
+              {planningSource ? (
+                <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                  <p className="font-medium text-card-foreground">{formatCurrency(planningSource.amount)} - {planningSource.cleanDescription ?? planningSource.concept}</p>
+                  <p>{formatDate(planningSource.date)} - {planningSource.account?.name ?? "Cuenta"}</p>
+                </div>
+              ) : null}
+              {planningGoals.length === 0 ? <p className="text-sm text-muted-foreground">No tienes objetivos activos. Crea uno en Planificación para poder asociarlo.</p> : null}
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {planningGoals.map((goal) => (
+                  <label key={goal.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="h-3 w-3 rounded-full" style={{ backgroundColor: goal.color ?? "#14b8a6" }} />
+                      <span className="truncate text-card-foreground">{goal.name}</span>
+                      {goal.status !== "ACTIVE" ? <span className="text-xs text-muted-foreground">{goal.status === "PAUSED" ? "Pausado" : "Completado"}</span> : null}
+                    </span>
+                    <input type="checkbox" checked={planningAssociation.selectedGoalIds.includes(goal.id)} onChange={() => setPlanningAssociation({ ...planningAssociation, selectedGoalIds: toggleId(planningAssociation.selectedGoalIds, goal.id), error: "" })} />
+                  </label>
+                ))}
+              </div>
+              {planningSource?.isInternalTransfer ? (
+                <label className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-muted-foreground">
+                  <input type="checkbox" checked={planningAssociation.includeInternalTransfer} onChange={(event) => setPlanningAssociation({ ...planningAssociation, includeInternalTransfer: event.target.checked })} />
+                  <span>Confirmo que quiero que esta transferencia interna cuente en el cálculo del objetivo seleccionado.</span>
+                </label>
+              ) : null}
+              {planningAssociation.error ? <p className="text-sm text-danger">{planningAssociation.error}</p> : null}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setPlanningAssociation(null)}>Cancelar</Button>
+              <Button type="button" onClick={() => void savePlanningAssociation()} disabled={savingId === planningAssociation.transactionId}>Guardar objetivos</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {internalTransfer ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="internal-transfer-title">
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-xl">
             <div className="flex items-center justify-between gap-3">
               <h3 id="internal-transfer-title" className="text-base font-semibold text-card-foreground">Transferencia interna</h3>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setInternalTransfer(null)} title="Cerrar">
-                <X className="h-4 w-4" />
-              </Button>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setInternalTransfer(null)} title="Cerrar"><X className="h-4 w-4" /></Button>
             </div>
             <div className="mt-4 space-y-3">
-              <p className="text-sm text-muted-foreground">Elige la otra cuenta propia. Si ves el movimiento contrario, vinculalo para que ambos queden unidos.</p>
+              <p className="text-sm text-muted-foreground">Elige la otra cuenta propia. Si ves el movimiento contrario, vincúlalo para que ambos queden unidos.</p>
               {internalTransferSource ? (
                 <div className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                   <p className="font-medium text-card-foreground">{formatCurrency(internalTransferSource.amount)} - {internalTransferSource.concept}</p>
                   <p>{formatDate(internalTransferSource.date)} - {internalTransferSource.account?.name ?? "Cuenta"}</p>
                 </div>
               ) : null}
-              <Select
-                value={internalTransfer.counterAccountId}
-                onChange={(event) => {
-                  setCounterpartSearch("");
-                  setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, counterpartTransactionId: "", error: "" });
-                }}
-              >
+              <Select value={internalTransfer.counterAccountId} onChange={(event) => { setCounterpartSearch(""); setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, counterpartTransactionId: "", error: "" }); }}>
                 <option value="">Seleccionar cuenta origen/destino</option>
-                {accounts
-                  .filter((account) => account.id !== internalTransferSource?.accountId)
-                  .map((account) => (
-                    <option key={account.id} value={account.id}>{account.name}</option>
-                  ))}
+                {accounts.filter((account) => account.id !== internalTransferSource?.accountId).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
               </Select>
-              <Input
-                value={counterpartSearch}
-                onChange={(event) => setCounterpartSearch(event.target.value)}
-                placeholder="Buscar contrapartida por concepto, fecha o importe"
-                disabled={!internalTransfer.counterAccountId}
-              />
-              <Select
-                value={internalTransfer.counterpartTransactionId}
-                onChange={(event) => setInternalTransfer({ ...internalTransfer, counterpartTransactionId: event.target.value, error: "" })}
-                disabled={!internalTransfer.counterAccountId || counterpartOptions.length === 0}
-              >
+              <Input value={counterpartSearch} onChange={(event) => setCounterpartSearch(event.target.value)} placeholder="Buscar contrapartida por concepto, fecha o importe" disabled={!internalTransfer.counterAccountId} />
+              <Select value={internalTransfer.counterpartTransactionId} onChange={(event) => setInternalTransfer({ ...internalTransfer, counterpartTransactionId: event.target.value, error: "" })} disabled={!internalTransfer.counterAccountId || counterpartOptions.length === 0}>
                 <option value="">Sin contrapartida exacta</option>
-                {counterpartOptions.map((tx) => (
-                  <option key={tx.id} value={tx.id}>
-                    {formatDate(tx.date)} - {formatCurrency(tx.amount)} - {tx.concept.slice(0, 80)}
-                  </option>
-                ))}
+                {counterpartOptions.map((tx) => <option key={tx.id} value={tx.id}>{formatDate(tx.date)} - {formatCurrency(tx.amount)} - {tx.concept.slice(0, 80)}</option>)}
               </Select>
-              {counterpartOptions.length === 0 && internalTransfer.counterAccountId ? (
-                <p className="text-xs text-muted-foreground">No he encontrado coincidencias cercanas en esa cuenta. Puedes buscar manualmente o marcarla igualmente sin contrapartida.</p>
-              ) : null}
+              {counterpartOptions.length === 0 && internalTransfer.counterAccountId ? <p className="text-xs text-muted-foreground">No he encontrado coincidencias cercanas en esa cuenta. Puedes buscar manualmente o marcarla igualmente sin contrapartida.</p> : null}
               {internalTransfer.error ? <p className="text-sm text-danger">{internalTransfer.error}</p> : null}
             </div>
             <div className="mt-5 flex justify-end gap-2">

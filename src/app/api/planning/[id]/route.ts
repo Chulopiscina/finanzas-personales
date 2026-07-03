@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { PlanningGoalType, PlanningPeriod, PlanningStatus } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
@@ -99,9 +99,9 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Objetivo no encontrado." }, { status: 404 });
     }
 
-    const goal = await prisma.planningGoal.update({ where: { id }, data: { status: PlanningStatus.ARCHIVED } });
-    return NextResponse.json({ goal });
+    await prisma.planningGoal.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
   } catch (error) {
-    return jsonError(error, "No se pudo archivar el objetivo.");
+    return jsonError(error, "No se pudo eliminar el objetivo.");
   }
 }

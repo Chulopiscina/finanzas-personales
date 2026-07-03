@@ -1,18 +1,35 @@
-﻿"use client";
+"use client";
 
-import { Archive, CheckCircle2, PauseCircle, PlayCircle, Plus, Save } from "lucide-react";
+import { Archive, CheckCircle2, PauseCircle, PlayCircle, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 
 type GoalType = "FIXED_EXPENSE" | "VARIABLE_EXPENSE" | "SAVINGS" | "INVESTMENT" | "DEBT" | "OTHER";
 type GoalPeriod = "MONTHLY" | "ANNUAL" | "CUSTOM";
 type GoalStatus = "ACTIVE" | "PAUSED" | "COMPLETED" | "ARCHIVED";
+type TransactionType = "INCOME" | "EXPENSE" | "TRANSFER";
 
 type AccountOption = { id: string; name: string };
 type CategoryOption = { id: string; name: string; color: string };
+
+type GoalMovement = {
+  id: string;
+  date: string;
+  concept: string;
+  amount: number;
+  type: TransactionType;
+  accountName: string | null;
+  categoryName: string | null;
+  source: "automatic" | "manual" | "both";
+  isManual: boolean;
+  isAutomatic: boolean;
+  isInternalTransfer: boolean;
+  includeInternalTransfer: boolean;
+  countsInProgress: boolean;
+};
 
 type PlanningGoalRow = {
   id: string;
@@ -30,6 +47,9 @@ type PlanningGoalRow = {
   accountName: string | null;
   categoryIds: string[];
   categoryNames: string[];
+  automaticMovementCount: number;
+  manualMovementCount: number;
+  movements: GoalMovement[];
   color: string;
   icon: string;
   status: GoalStatus;
@@ -73,6 +93,12 @@ const statusLabels: Record<GoalStatus, string> = {
   PAUSED: "Pausado",
   COMPLETED: "Completado",
   ARCHIVED: "Archivado"
+};
+
+const movementSourceLabels: Record<GoalMovement["source"], string> = {
+  automatic: "Por categoría",
+  manual: "Manual",
+  both: "Categoría + manual"
 };
 
 const emptyForm: GoalForm = {
@@ -150,12 +176,7 @@ function FormFields({ form, setForm, accounts, categories }: { form: GoalForm; s
         <p className="text-xs font-medium uppercase text-muted-foreground">Categorías asociadas</p>
         <div className="mt-2 flex flex-wrap gap-2">
           {categories.map((category) => (
-            <button
-              key={category.id}
-              type="button"
-              onClick={() => setForm({ ...form, categoryIds: categoryToggle(form.categoryIds, category.id) })}
-              className={`rounded-md border px-2 py-1 text-xs transition ${form.categoryIds.includes(category.id) ? "border-accent bg-accent text-accent-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}
-            >
+            <button key={category.id} type="button" onClick={() => setForm({ ...form, categoryIds: categoryToggle(form.categoryIds, category.id) })} className={`rounded-md border px-2 py-1 text-xs transition ${form.categoryIds.includes(category.id) ? "border-accent bg-accent text-accent-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}>
               {category.name}
             </button>
           ))}
@@ -208,15 +229,37 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
   }
 
   async function archiveGoal(id: string) {
-    const confirmed = window.confirm("¿Archivar este objetivo? Dejará de aparecer en planificación y dashboard.");
+    const confirmed = window.confirm("¿Archivar este objetivo? Dejará de aparecer en dashboard, pero podrás reactivarlo más adelante.");
     if (!confirmed) return;
-    const response = await fetch(`/api/planning/${id}`, { method: "DELETE" });
+    await updateGoal(id, { status: "ARCHIVED", showInDashboard: false });
+  }
+
+  async function deleteGoal(goal: PlanningGoalRow) {
+    const warning = goal.movements.length > 0
+      ? "Este objetivo tiene movimientos asociados o detectados. Esta acción eliminará el objetivo, pero no eliminará los movimientos asociados."
+      : "Esta acción eliminará el objetivo, pero no eliminará ningún movimiento.";
+    const confirmed = window.confirm(`${warning}\n\n¿Eliminar definitivamente este objetivo?`);
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/planning/${goal.id}`, { method: "DELETE" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      setMessage(payload.error ?? "No se pudo archivar el objetivo.");
+      setMessage(payload.error ?? "No se pudo eliminar el objetivo.");
       return;
     }
-    setGoals((current) => current.filter((goal) => goal.id !== id));
+    setGoals((current) => current.filter((item) => item.id !== goal.id));
+  }
+
+  async function removeManualMovement(goalId: string, transactionId: string) {
+    const confirmed = window.confirm("¿Quitar este movimiento del objetivo? No se eliminará el movimiento.");
+    if (!confirmed) return;
+    const response = await fetch(`/api/planning/${goalId}/transactions/${transactionId}`, { method: "DELETE" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setMessage(payload.error ?? "No se pudo quitar el movimiento del objetivo.");
+      return;
+    }
+    refresh();
   }
 
   return (
@@ -224,9 +267,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
       <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
         <h2 className="text-base font-semibold text-card-foreground">Crear objetivo</h2>
         <p className="mt-1 text-sm text-muted-foreground">Define límites o metas y decide si aparecen en el dashboard.</p>
-        <div className="mt-4">
-          <FormFields form={form} setForm={setForm} accounts={accounts} categories={categories} />
-        </div>
+        <div className="mt-4"><FormFields form={form} setForm={setForm} accounts={accounts} categories={categories} /></div>
         <div className="mt-4 flex items-center gap-3">
           <Button type="button" onClick={() => void createGoal()}><Plus className="h-4 w-4" /> Crear objetivo</Button>
           {message ? <p className="text-sm text-danger">{message}</p> : null}
@@ -236,7 +277,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
       <section className="rounded-lg border border-border bg-card shadow-sm">
         <div className="border-b border-border p-5">
           <h2 className="text-base font-semibold text-card-foreground">Tus objetivos</h2>
-          <p className="text-sm text-muted-foreground">El progreso se calcula con movimientos reales y excluye transferencias internas.</p>
+          <p className="text-sm text-muted-foreground">El progreso combina categorías asociadas y movimientos añadidos manualmente, sin duplicarlos.</p>
         </div>
         {goals.length === 0 ? (
           <p className="p-5 text-sm text-muted-foreground">Aún no hay objetivos. Crea uno para empezar a planificar.</p>
@@ -255,36 +296,77 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
                       </div>
                     </div>
                   ) : (
-                    <div className="grid gap-4 lg:grid-cols-[1fr_280px] lg:items-center">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: goal.color }} />
-                          <h3 className="font-semibold text-card-foreground">{goal.name}</h3>
-                          <Badge tone={goal.tone}>{statusLabels[goal.status]}</Badge>
-                          {goal.showInDashboard ? <Badge>Dashboard</Badge> : null}
+                    <div className="space-y-5">
+                      <div className="grid gap-4 lg:grid-cols-[1fr_280px] lg:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: goal.color }} />
+                            <h3 className="font-semibold text-card-foreground">{goal.name}</h3>
+                            <Badge tone={goal.tone}>{statusLabels[goal.status]}</Badge>
+                            {goal.showInDashboard ? <Badge>Dashboard</Badge> : null}
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {typeLabels[goal.type]} - {periodLabels[goal.period]} - {goal.periodLabel}{goal.accountName ? ` - ${goal.accountName}` : ""}
+                          </p>
+                          {goal.categoryNames.length > 0 ? <p className="mt-1 text-xs text-muted-foreground">Categorías: {goal.categoryNames.join(", ")}</p> : null}
+                          {!goal.hasData ? <p className="mt-2 text-xs text-warning">No hay suficientes movimientos en este periodo para calcular una tendencia fiable.</p> : null}
+                          <div className="mt-3 h-2 rounded-full bg-muted"><div className="h-full rounded-full bg-accent" style={{ width: progressWidth(goal.progressPercent), backgroundColor: goal.color }} /></div>
                         </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {typeLabels[goal.type]} - {periodLabels[goal.period]} - {goal.periodLabel}
-                          {goal.accountName ? ` - ${goal.accountName}` : ""}
-                        </p>
-                        {goal.categoryNames.length > 0 ? <p className="mt-1 text-xs text-muted-foreground">Categorías: {goal.categoryNames.join(", ")}</p> : null}
-                        {!goal.hasData ? <p className="mt-2 text-xs text-warning">No hay suficientes movimientos en este periodo para calcular una tendencia fiable.</p> : null}
-                        <div className="mt-3 h-2 rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-accent" style={{ width: progressWidth(goal.progressPercent), backgroundColor: goal.color }} />
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                            <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Actual</p><p className="font-medium text-card-foreground">{formatCurrency(goal.actualAmount)}</p></div>
+                            <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Objetivo</p><p className="font-medium text-card-foreground">{formatCurrency(goal.targetAmount)}</p></div>
+                            <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Diferencia</p><p className="font-medium text-card-foreground">{formatCurrency(goal.difference)}</p></div>
+                          </div>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button type="button" variant="secondary" size="sm" onClick={() => { setEditingId(goal.id); setEditForm(toForm(goal)); }}>Editar</Button>
+                            {goal.status === "ARCHIVED" ? (
+                              <Button type="button" variant="secondary" size="sm" onClick={() => void updateGoal(goal.id, { status: "ACTIVE" })}><RotateCcw className="h-4 w-4" /> Reactivar</Button>
+                            ) : (
+                              <>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => void updateGoal(goal.id, { status: goal.status === "PAUSED" ? "ACTIVE" : "PAUSED" })}>{goal.status === "PAUSED" ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}{goal.status === "PAUSED" ? "Activar" : "Pausar"}</Button>
+                                <Button type="button" variant="secondary" size="sm" onClick={() => void updateGoal(goal.id, { status: "COMPLETED" })}><CheckCircle2 className="h-4 w-4" /> Completar</Button>
+                                <Button type="button" variant="danger" size="sm" onClick={() => void archiveGoal(goal.id)}><Archive className="h-4 w-4" /> Archivar</Button>
+                              </>
+                            )}
+                            <Button type="button" variant="danger" size="sm" onClick={() => void deleteGoal(goal)}><Trash2 className="h-4 w-4" /> Eliminar</Button>
+                          </div>
                         </div>
                       </div>
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                          <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Actual</p><p className="font-medium text-card-foreground">{formatCurrency(goal.actualAmount)}</p></div>
-                          <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Objetivo</p><p className="font-medium text-card-foreground">{formatCurrency(goal.targetAmount)}</p></div>
-                          <div className="rounded-md bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Diferencia</p><p className="font-medium text-card-foreground">{formatCurrency(goal.difference)}</p></div>
+
+                      <div className="rounded-lg border border-border bg-muted/20 p-4">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h4 className="text-sm font-semibold text-card-foreground">Movimientos asociados</h4>
+                            <p className="text-xs text-muted-foreground">{goal.automaticMovementCount} por categoría · {goal.manualMovementCount} manuales</p>
+                          </div>
                         </div>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button type="button" variant="secondary" size="sm" onClick={() => { setEditingId(goal.id); setEditForm(toForm(goal)); }}>Editar</Button>
-                          <Button type="button" variant="secondary" size="sm" onClick={() => void updateGoal(goal.id, { status: goal.status === "PAUSED" ? "ACTIVE" : "PAUSED" })}>{goal.status === "PAUSED" ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}{goal.status === "PAUSED" ? "Activar" : "Pausar"}</Button>
-                          <Button type="button" variant="secondary" size="sm" onClick={() => void updateGoal(goal.id, { status: "COMPLETED" })}><CheckCircle2 className="h-4 w-4" /> Completar</Button>
-                          <Button type="button" variant="danger" size="sm" onClick={() => void archiveGoal(goal.id)}><Archive className="h-4 w-4" /> Archivar</Button>
-                        </div>
+                        {goal.movements.length === 0 ? (
+                          <p className="mt-3 text-sm text-muted-foreground">No hay movimientos asociados en este periodo.</p>
+                        ) : (
+                          <div className="mt-3 divide-y divide-border overflow-hidden rounded-md border border-border">
+                            {goal.movements.slice(0, 12).map((movement) => (
+                              <div key={movement.id} className="grid gap-3 bg-card px-3 py-2 text-sm md:grid-cols-[110px_1fr_130px_160px_auto] md:items-center">
+                                <span className="text-muted-foreground">{formatDate(movement.date)}</span>
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-card-foreground">{movement.concept}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{movement.accountName ?? "Cuenta"}{movement.categoryName ? ` · ${movement.categoryName}` : ""}</p>
+                                </div>
+                                <span className={movement.amount >= 0 ? "font-medium text-success" : "font-medium text-danger"}>{formatCurrency(movement.amount)}</span>
+                                <div className="flex flex-wrap gap-1">
+                                  <Badge tone={movement.source === "manual" ? "neutral" : "success"}>{movementSourceLabels[movement.source]}</Badge>
+                                  {!movement.countsInProgress ? <Badge tone="warning">No cuenta</Badge> : null}
+                                </div>
+                                <div className="text-right">
+                                  {movement.isManual ? (
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => void removeManualMovement(goal.id, movement.id)}>Quitar manual</Button>
+                                  ) : <span className="text-xs text-muted-foreground">Automático</span>}
+                                </div>
+                              </div>
+                            ))}
+                            {goal.movements.length > 12 ? <p className="bg-card px-3 py-2 text-xs text-muted-foreground">Mostrando 12 de {goal.movements.length} movimientos.</p> : null}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -297,4 +379,3 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
     </div>
   );
 }
-

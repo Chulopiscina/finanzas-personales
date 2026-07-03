@@ -4,7 +4,7 @@ import { detectAndMarkInternalTransfers, ensureDefaultAccount, toNumber } from "
 import { prisma } from "@/lib/prisma";
 
 type Props = {
-  searchParams?: Promise<{ userId?: string; accountId?: string; categoryId?: string; type?: string; importId?: string }>;
+  searchParams?: Promise<{ userId?: string; accountId?: string; categoryId?: string; type?: string; importId?: string; planningGoalId?: string }>;
 };
 
 export default async function MovementsPage({ searchParams }: Props) {
@@ -17,16 +17,32 @@ export default async function MovementsPage({ searchParams }: Props) {
   const userId = getAuthorizedUserId(session.user, params?.userId);
   await ensureDefaultAccount(userId);
   await detectAndMarkInternalTransfers(userId);
-  const [transactions, categories, accounts, imports] = await Promise.all([
+
+  const planningGoalFilter = params?.planningGoalId ?? "";
+  const planningWhere = planningGoalFilter === "__none"
+    ? { planningGoals: { none: {} } }
+    : planningGoalFilter === "__any"
+      ? { planningGoals: { some: {} } }
+      : planningGoalFilter
+        ? { planningGoals: { some: { goalId: planningGoalFilter } } }
+        : {};
+
+  const [transactions, categories, accounts, imports, planningGoals] = await Promise.all([
     prisma.transaction.findMany({
       where: {
         userId,
         ...(params?.accountId ? { accountId: params.accountId } : {}),
         ...(params?.categoryId ? { categoryId: params.categoryId } : {}),
         ...(params?.type && ["INCOME", "EXPENSE", "TRANSFER"].includes(params.type) ? { type: params.type as "INCOME" | "EXPENSE" | "TRANSFER" } : {}),
-        ...(params?.importId ? { importHistoryId: params.importId } : {})
+        ...(params?.importId ? { importHistoryId: params.importId } : {}),
+        ...planningWhere
       },
-      include: { category: true, account: true, importHistory: { select: { id: true, fileName: true } } },
+      include: {
+        category: true,
+        account: true,
+        importHistory: { select: { id: true, fileName: true } },
+        planningGoals: { include: { goal: { select: { id: true, name: true, color: true, status: true } } }, orderBy: { createdAt: "asc" } }
+      },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       take: 500
     }),
@@ -35,20 +51,26 @@ export default async function MovementsPage({ searchParams }: Props) {
       orderBy: { name: "asc" }
     }),
     prisma.account.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-    prisma.importHistory.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, fileName: true } })
+    prisma.importHistory.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, fileName: true } }),
+    prisma.planningGoal.findMany({
+      where: { userId, status: { in: ["ACTIVE", "PAUSED", "COMPLETED"] } },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      select: { id: true, name: true, color: true, status: true }
+    })
   ]);
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground">Movimientos</h1>
-        <p className="text-sm text-muted-foreground">ClasificaciÃ³n, cuenta, origen y ediciÃ³n manual</p>
+        <p className="text-sm text-muted-foreground">Clasificación, cuenta, origen, objetivos y edición manual</p>
       </header>
       <TransactionsTable
         accounts={accounts.map((account) => ({ id: account.id, name: account.name, isArchived: account.isArchived }))}
         categories={categories}
         imports={imports}
-        initialFilters={{ accountId: params?.accountId ?? "", categoryId: params?.categoryId ?? "", type: params?.type ?? "", importId: params?.importId ?? "" }}
+        planningGoals={planningGoals}
+        initialFilters={{ accountId: params?.accountId ?? "", categoryId: params?.categoryId ?? "", type: params?.type ?? "", importId: params?.importId ?? "", planningGoalId: planningGoalFilter }}
         initialTransactions={transactions.map((tx) => ({
           id: tx.id,
           date: tx.date.toISOString(),
@@ -62,6 +84,7 @@ export default async function MovementsPage({ searchParams }: Props) {
           accountId: tx.accountId,
           account: tx.account,
           importHistory: tx.importHistory,
+          planningGoals: tx.planningGoals,
           isInternalTransfer: tx.isInternalTransfer,
           internalTransferCounterAccountId: tx.internalTransferCounterAccountId
         }))}

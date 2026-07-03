@@ -146,6 +146,7 @@ model Transaction {
   isInternalTransfer Boolean      @default(false)
   internalTransferGroupId String?
   internalTransferCounterAccountId String?
+  planningGoals   PlanningGoalTransaction[]
   sourceHash      String
   raw             Json?
   createdAt       DateTime        @default(now())
@@ -178,6 +179,7 @@ model PlanningGoal {
   status       PlanningStatus      @default(ACTIVE)
   showInDashboard Boolean          @default(false)
   categories   PlanningGoalCategory[]
+  transactions PlanningGoalTransaction[]
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
@@ -194,6 +196,18 @@ model PlanningGoalCategory {
 
   @@id([goalId, categoryId])
   @@index([categoryId])
+}
+
+model PlanningGoalTransaction {
+  goalId                  String
+  transactionId           String
+  includeInternalTransfer Boolean     @default(false)
+  createdAt               DateTime    @default(now())
+  goal                    PlanningGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  transaction             Transaction  @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@id([goalId, transactionId])
+  @@index([transactionId])
 }
 
 model MonthlySummary {
