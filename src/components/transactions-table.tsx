@@ -72,6 +72,7 @@ export function TransactionsTable({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
   const [internalTransfer, setInternalTransfer] = useState<InternalTransferState | null>(null);
+  const [counterpartSearch, setCounterpartSearch] = useState("");
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -172,6 +173,7 @@ export function TransactionsTable({
 
   function openInternalTransfer(tx: TransactionRow) {
     const defaultCounter = accounts.find((account) => account.id !== tx.accountId)?.id ?? "";
+    setCounterpartSearch("");
     setInternalTransfer({
       transactionId: tx.id,
       counterAccountId: tx.internalTransferCounterAccountId ?? defaultCounter,
@@ -229,14 +231,31 @@ export function TransactionsTable({
   const internalTransferSource = internalTransfer
     ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null
     : null;
+  const counterpartQuery = counterpartSearch.trim().toLowerCase();
   const counterpartOptions = internalTransferSource
     ? transactions
-        .filter(
-          (tx) =>
-            tx.id !== internalTransferSource.id &&
-            tx.accountId === internalTransfer?.counterAccountId &&
-            Math.sign(tx.amount) === -Math.sign(internalTransferSource.amount)
-        )
+        .filter((tx) => {
+          if (
+            tx.id === internalTransferSource.id ||
+            tx.accountId !== internalTransfer?.counterAccountId ||
+            Math.sign(tx.amount) !== -Math.sign(internalTransferSource.amount)
+          ) {
+            return false;
+          }
+
+          const amountDiff = Math.abs(Math.abs(tx.amount) - Math.abs(internalTransferSource.amount));
+          const dayDiff = Math.abs(new Date(tx.date).getTime() - new Date(internalTransferSource.date).getTime()) / 86_400_000;
+          const closeMatch = amountDiff <= Math.max(1, Math.abs(internalTransferSource.amount) * 0.001) && dayDiff <= 14;
+          const queryMatch =
+            !counterpartQuery ||
+            [tx.concept, tx.cleanDescription, tx.account?.name, formatCurrency(tx.amount), formatDate(tx.date)]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(counterpartQuery);
+
+          return counterpartQuery ? queryMatch : closeMatch;
+        })
         .sort((left, right) => {
           const leftAmountDiff = Math.abs(Math.abs(left.amount) - Math.abs(internalTransferSource.amount));
           const rightAmountDiff = Math.abs(Math.abs(right.amount) - Math.abs(internalTransferSource.amount));
@@ -347,24 +366,26 @@ export function TransactionsTable({
                   {tx.balance === null ? "-" : formatCurrency(tx.balance)}
                 </td>
                 <td className="px-4 py-3">
-                  <Badge tone={tx.isInternalTransfer ? "neutral" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
-                    {tx.isInternalTransfer ? "Transferencia interna" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
-                  </Badge>
-                </td>
-                <td className="max-w-xs px-4 py-3 text-muted-foreground">
-                  {tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex min-w-52 flex-col items-start gap-2">
+                    <Badge tone={tx.isInternalTransfer ? "neutral" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
+                      {tx.isInternalTransfer ? "Transferencia interna" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
+                    </Badge>
                     {tx.isInternalTransfer ? (
                       <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>
                         Quitar interna
                       </Button>
                     ) : (
                       <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>
-                        Marcar como interna
+                        Marcar como transferencia interna
                       </Button>
                     )}
+                  </div>
+                </td>
+                <td className="max-w-xs px-4 py-3 text-muted-foreground">
+                  {tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-2">
                     <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar">
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -422,7 +443,10 @@ export function TransactionsTable({
               ) : null}
               <Select
                 value={internalTransfer.counterAccountId}
-                onChange={(event) => setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, counterpartTransactionId: "", error: "" })}
+                onChange={(event) => {
+                  setCounterpartSearch("");
+                  setInternalTransfer({ ...internalTransfer, counterAccountId: event.target.value, counterpartTransactionId: "", error: "" });
+                }}
               >
                 <option value="">Seleccionar cuenta origen/destino</option>
                 {accounts
@@ -431,6 +455,12 @@ export function TransactionsTable({
                     <option key={account.id} value={account.id}>{account.name}</option>
                   ))}
               </Select>
+              <Input
+                value={counterpartSearch}
+                onChange={(event) => setCounterpartSearch(event.target.value)}
+                placeholder="Buscar contrapartida por concepto, fecha o importe"
+                disabled={!internalTransfer.counterAccountId}
+              />
               <Select
                 value={internalTransfer.counterpartTransactionId}
                 onChange={(event) => setInternalTransfer({ ...internalTransfer, counterpartTransactionId: event.target.value, error: "" })}
@@ -444,7 +474,7 @@ export function TransactionsTable({
                 ))}
               </Select>
               {counterpartOptions.length === 0 && internalTransfer.counterAccountId ? (
-                <p className="text-xs text-muted-foreground">No he encontrado movimientos de signo contrario en esa cuenta. Puedes marcarla igualmente.</p>
+                <p className="text-xs text-muted-foreground">No he encontrado coincidencias cercanas en esa cuenta. Puedes buscar manualmente o marcarla igualmente sin contrapartida.</p>
               ) : null}
               {internalTransfer.error ? <p className="text-sm text-danger">{internalTransfer.error}</p> : null}
             </div>

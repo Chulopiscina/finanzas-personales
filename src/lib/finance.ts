@@ -195,9 +195,13 @@ function closeEnoughDate(left: Date, right: Date) {
   return diffDays <= 7;
 }
 
+function hasPairedInternalTransfer(tx: TransactionWithCategory) {
+  return tx.isInternalTransfer && Boolean(tx.internalTransferGroupId?.startsWith("internal-"));
+}
+
 export async function detectAndMarkInternalTransfers(userId: string) {
   const transactions = await prisma.transaction.findMany({
-    where: { userId, isInternalTransfer: false },
+    where: { userId },
     include: { category: true, account: true },
     orderBy: [{ date: "asc" }, { createdAt: "asc" }]
   });
@@ -208,15 +212,23 @@ export async function detectAndMarkInternalTransfers(userId: string) {
 
   for (const outgoing of candidates) {
     const outAmount = toNumber(outgoing.amount);
-    if (outAmount >= 0 || used.has(outgoing.id)) {
+    if (outAmount >= 0 || used.has(outgoing.id) || hasPairedInternalTransfer(outgoing)) {
       continue;
     }
 
     const incoming = candidates.find((candidate) => {
       const inAmount = toNumber(candidate.amount);
+      const alreadyLinked =
+        outgoing.isInternalTransfer &&
+        candidate.isInternalTransfer &&
+        outgoing.internalTransferGroupId !== null &&
+        outgoing.internalTransferGroupId === candidate.internalTransferGroupId;
+
       return (
         inAmount > 0 &&
         !used.has(candidate.id) &&
+        !alreadyLinked &&
+        !hasPairedInternalTransfer(candidate) &&
         candidate.accountId !== outgoing.accountId &&
         closeEnoughAmount(outAmount, inAmount) &&
         closeEnoughDate(outgoing.date, candidate.date) &&
