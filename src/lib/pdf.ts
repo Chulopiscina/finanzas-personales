@@ -10,6 +10,10 @@ const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
 const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
 const moneyWithCurrencyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}\s*\u20ac|-?\d+,\d{2}\s*\u20ac|[-+]?\d+\.\d{2}\s*\u20ac/g;
+const pdfNoiseLinePattern =
+  /^(?:saldo\s+(?:anterior|inicial|final|actual|disponible)|total(?:es)?\b|resumen\b|extracto\b|titulares:?\b|f\.oper\b|fecha\s+de\s+emisi[o\u00f3]n\b|todos\s+los\s+importes\b|hoja\b|bic:?\b|euro\b|iban\b|--\s*\d+\s+of\s+\d+\s*--|S\d{6,}\b|F\d{5,}\b|BBVA\b|Banco Bilbao\b|www\.bbva\b|Atenci[o\u00f3]n\b)/i;
+const pdfNoiseInlinePattern =
+  /\s+(?:saldo\s+(?:anterior|inicial|final|actual|disponible)|total(?:es)?\b|resumen\b|extracto\b|titulares:?\b|f\.oper\b|fecha\s+de\s+emisi[o\u00f3]n\b|todos\s+los\s+importes\b|hoja\b|bic:?\b|euro\b|iban\b|--\s*\d+\s+of\s+\d+\s*--|S\d{6,}\b|F\d{5,}\b|BBVA\b|Banco Bilbao\b|www\.bbva\b|Atenci[o\u00f3]n\b).*/i;
 
 async function ensurePdfRuntime() {
   const globalWithDom = globalThis as Record<string, unknown>;
@@ -53,11 +57,24 @@ function isMovementStart(line: string) {
   return Boolean(fullDateAtStart && line.slice(fullDateAtStart[0].length).trim().length > 0);
 }
 
+function isPdfNoiseLine(line: string) {
+  const normalized = normalizeLine(line);
+  return !normalized || pdfNoiseLinePattern.test(normalized);
+}
+
 function buildRecords(lines: string[]) {
   const records: string[] = [];
   let current = "";
 
   for (const line of lines) {
+    if (isPdfNoiseLine(line)) {
+      if (current) {
+        records.push(current);
+        current = "";
+      }
+      continue;
+    }
+
     if (isMovementStart(line)) {
       if (current) {
         records.push(current);
@@ -76,6 +93,10 @@ function buildRecords(lines: string[]) {
   }
 
   return records;
+}
+
+function trimPdfRecord(record: string) {
+  return record.replace(pdfNoiseInlinePattern, "").trim();
 }
 
 function getStatementContext(text: string): PdfStatementContext {
@@ -173,7 +194,8 @@ function movementHash(date: Date, concept: string, amount: number, balance: numb
 }
 
 function parsePdfRecord(record: string, index: number, context: PdfStatementContext): ParsedMovement | null {
-  const parsedDate = parsePdfDate(record, context);
+  const cleanRecord = trimPdfRecord(record);
+  const parsedDate = parsePdfDate(cleanRecord, context);
   if (!parsedDate) {
     return null;
   }
@@ -215,7 +237,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
     sourceHash: movementHash(date, concept, amount, balance, "pdf"),
     raw: {
       source: "pdf",
-      record,
+      record: cleanRecord,
       extractedAt: new Date().toISOString()
     }
   };
