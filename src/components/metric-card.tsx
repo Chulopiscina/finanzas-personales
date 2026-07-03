@@ -6,20 +6,26 @@ export function MetricCard({
   value,
   caption,
   icon: Icon,
-  tone = "neutral"
+  tone = "neutral",
+  emphasis = false,
+  className
 }: {
   title: string;
   value: string;
   caption?: string;
   icon: LucideIcon;
   tone?: "neutral" | "success" | "warning" | "danger";
+  emphasis?: boolean;
+  className?: string;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+    <section className={cn("rounded-lg border border-border bg-card p-4 shadow-sm", emphasis && "bg-muted/30", className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="mt-2 truncate text-2xl font-semibold tracking-normal text-card-foreground">{value}</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">{title}</p>
+          <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", emphasis ? "text-3xl" : "text-2xl")}>
+            {value}
+          </p>
         </div>
         <div
           className={cn(
@@ -33,7 +39,7 @@ export function MetricCard({
           <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
       </div>
-      {caption ? <p className="mt-3 text-xs text-muted-foreground">{caption}</p> : null}
+      {caption ? <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{caption}</p> : null}
     </section>
   );
 }

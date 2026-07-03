@@ -1,5 +1,6 @@
 "use client";
 
+import { Landmark } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Select } from "@/components/ui/input";
 
@@ -24,13 +25,19 @@ export function DashboardAccountSelector({ accounts, selectedAccountId }: { acco
   }
 
   return (
-    <Select value={selectedAccountId ?? ""} onChange={(event) => changeAccount(event.target.value)} className="w-full sm:w-64">
-      <option value="">Todas las cuentas</option>
-      {accounts.map((account) => (
-        <option key={account.id} value={account.id}>
-          {account.name}{account.isArchived ? " (archivada)" : ""}
-        </option>
-      ))}
-    </Select>
+    <label className="flex w-full flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm sm:w-80">
+      <span className="flex items-center gap-2 text-xs font-medium uppercase text-muted-foreground">
+        <Landmark className="h-4 w-4" aria-hidden="true" />
+        Vista del dashboard
+      </span>
+      <Select value={selectedAccountId ?? ""} onChange={(event) => changeAccount(event.target.value)} className="h-11 bg-muted/40">
+        <option value="">Todas las cuentas activas</option>
+        {accounts.map((account) => (
+          <option key={account.id} value={account.id}>
+            {account.name}{account.isArchived ? " (archivada)" : ""}
+          </option>
+        ))}
+      </Select>
+    </label>
   );
 }
