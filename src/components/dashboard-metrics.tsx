@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Goal, Home, Landmark, PiggyBank, ReceiptText, ShoppingBag, WalletCards, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -33,15 +34,14 @@ const icons = {
   goal: Goal
 };
 
+const cardBaseClass = "group flex h-full min-h-[190px] flex-col rounded-2xl border bg-card p-5 text-left shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 ease-out dark:shadow-none";
+const interactiveCardClass = "hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] focus:outline-none focus:ring-2 focus:ring-accent/30";
+const actionLinkClass = "inline-flex h-10 items-center justify-center rounded-full border border-border bg-card px-4 text-sm font-medium text-card-foreground transition duration-200 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-accent/30";
+
 function FinanceCard({ title, value, icon, tone, indicator = "—", onClick, large = false, className }: { title: string; value: string; icon: CardIcon; tone: CardTone; indicator?: string; onClick?: () => void; large?: boolean; className?: string }) {
   const Icon = icons[icon];
   const colors = toneClasses[tone];
-  const cardClassName = cn(
-    "group rounded-2xl border bg-card p-5 text-left shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 ease-out dark:shadow-none",
-    colors.border,
-    onClick && "hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] focus:outline-none focus:ring-2 focus:ring-accent/30",
-    className
-  );
+  const cardClassName = cn(cardBaseClass, colors.border, onClick && interactiveCardClass, className);
   const content = (
     <>
       <div className="flex items-start justify-between gap-4">
@@ -50,7 +50,7 @@ function FinanceCard({ title, value, icon, tone, indicator = "—", onClick, lar
         </div>
         <span className={cn("rounded-full px-2 py-1 text-xs font-medium", colors.text)}>{indicator}</span>
       </div>
-      <div className="mt-7">
+      <div className="mt-auto pt-7">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", large ? "text-4xl" : "text-3xl")}>{value}</p>
       </div>
@@ -79,14 +79,14 @@ function SpendingTypeCard({ title, amount, percent, icon, tone, emptyText }: { t
   const hasData = amount > 0;
 
   return (
-    <article className={cn("rounded-2xl border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none", colors.border)}>
+    <article className={cn(cardBaseClass, interactiveCardClass, colors.border)}>
       <div className="flex items-start justify-between gap-4">
         <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", colors.icon)}>
           <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
         <span className={cn("rounded-full px-2 py-1 text-xs font-medium", colors.text)}>{percent} %</span>
       </div>
-      <div className="mt-6">
+      <div className="mt-auto pt-6">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         <p className="mt-2 text-3xl font-semibold tracking-normal text-card-foreground">{formatCurrency(amount)}</p>
       </div>
@@ -98,24 +98,24 @@ function SpendingTypeCard({ title, amount, percent, icon, tone, emptyText }: { t
   );
 }
 
-function PreparedFeatureCard({ title, subtitle, buttonLabel, icon, tone }: { title: string; subtitle: string; buttonLabel: string; icon: CardIcon; tone: CardTone }) {
+function PreparedFeatureCard({ title, subtitle, buttonLabel, href, icon, tone }: { title: string; subtitle: string; buttonLabel: string; href: string; icon: CardIcon; tone: CardTone }) {
   const Icon = icons[icon];
   const colors = toneClasses[tone];
 
   return (
-    <article className={cn("rounded-2xl border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none", colors.border)}>
+    <article className={cn("flex h-full min-h-[230px] flex-col rounded-2xl border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none", colors.border)}>
       <div className="flex items-start justify-between gap-4">
         <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", colors.icon)}>
           <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
         <span className="rounded-full px-2 py-1 text-xs font-medium text-muted-foreground">0 %</span>
       </div>
-      <div className="mt-6 grid gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className="mt-6 grid flex-1 gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
         <div className="min-w-0">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           <p className="mt-2 text-2xl font-semibold tracking-normal text-card-foreground">{subtitle}</p>
         </div>
-        <Button type="button" variant="secondary" className="justify-center rounded-full">{buttonLabel}</Button>
+        <Link href={href} className={actionLinkClass}>{buttonLabel}</Link>
       </div>
       <div className="mt-5 space-y-2">
         <ProgressLine value={0} tone={tone} />
@@ -141,7 +141,7 @@ function UpcomingPaymentsCard() {
             <p className="mt-1 text-2xl font-semibold text-card-foreground">No hay pagos recurrentes</p>
           </div>
         </div>
-        <Button type="button" variant="secondary" className="justify-center rounded-full">Añadir pago recurrente</Button>
+        <Link href="/planning/recurring-payments" className={actionLinkClass}>Añadir pago recurrente</Link>
       </div>
       <div className="mt-5 rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
         No tienes pagos recurrentes configurados.
@@ -178,19 +178,16 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
         <FinanceCard title="Ahorro del periodo" value={formatCurrency(data.metrics.periodResult)} icon="result" tone={resultPositive ? "blue" : "red"} onClick={() => setDetailKey("periodResult")} />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-2">
+      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
         <SpendingTypeCard title="Gastos fijos" amount={0} percent={0} icon="fixed" tone="purple" emptyText="No existen gastos fijos registrados." />
         <SpendingTypeCard title="Gastos variables" amount={0} percent={0} icon="variable" tone="orange" emptyText="No existen gastos variables registrados." />
+        <FinanceCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} icon="transfer" tone="blue" onClick={() => setDetailKey("internalTransfers")} />
+        <FinanceCard title="Sin categorizar" value={String(data.metrics.uncategorizedCount)} icon="uncategorized" tone="gray" onClick={() => setDetailKey("uncategorized")} />
       </section>
 
-      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        <FinanceCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} icon="transfer" tone="blue" onClick={() => setDetailKey("internalTransfers")} className="xl:col-span-2" />
-        <FinanceCard title="Sin categorizar" value={String(data.metrics.uncategorizedCount)} icon="uncategorized" tone="gray" onClick={() => setDetailKey("uncategorized")} className="xl:col-span-2" />
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-4">
-        <PreparedFeatureCard title="Presupuesto mensual" subtitle="Sin presupuesto configurado" buttonLabel="Configurar presupuesto" icon="budget" tone="orange" />
-        <PreparedFeatureCard title="Objetivo de ahorro" subtitle="No hay un objetivo configurado" buttonLabel="Crear objetivo" icon="goal" tone="blue" />
+      <section className="grid gap-5 lg:grid-cols-2">
+        <PreparedFeatureCard title="Presupuesto mensual" subtitle="Sin presupuesto configurado" buttonLabel="Configurar presupuesto" href="/planning/budget" icon="budget" tone="orange" />
+        <PreparedFeatureCard title="Objetivo de ahorro" subtitle="No hay un objetivo configurado" buttonLabel="Crear objetivo" href="/planning" icon="goal" tone="blue" />
       </section>
 
       <UpcomingPaymentsCard />
@@ -245,4 +242,3 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
     </>
   );
 }
-
