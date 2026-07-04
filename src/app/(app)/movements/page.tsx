@@ -90,6 +90,7 @@ export default async function MovementsPage({ searchParams }: Props) {
           reimbursementLinks: tx.reimbursementLinks,
           reimbursedByLinks: tx.reimbursedByLinks,
           isInternalTransfer: tx.isInternalTransfer,
+          isFixedExpense: tx.isFixedExpense,
           internalTransferCounterAccountId: tx.internalTransferCounterAccountId
         }))}
       />

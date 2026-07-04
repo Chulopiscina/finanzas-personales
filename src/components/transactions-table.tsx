@@ -37,6 +37,7 @@ type TransactionRow = {
   reimbursementLinks: ReimbursementAssociation[];
   reimbursedByLinks: Array<{ reimbursementId: string; reimbursement: { concept: string; cleanDescription: string | null; amount: unknown } }>;
   isInternalTransfer: boolean;
+  isFixedExpense: boolean;
   internalTransferCounterAccountId: string | null;
 };
 
@@ -111,9 +112,10 @@ export function TransactionsTable({
     return transactions.filter((tx) => {
       const goalNames = tx.planningGoals.map((item) => item.goal.name).join(" ");
       const reimbursementText = tx.reimbursementLinks.length > 0 ? "reembolso" : "";
+      const expenseKindText = tx.type === "EXPENSE" ? (tx.isFixedExpense ? "gasto fijo fijo" : "gasto variable variable") : "";
       const matchesQuery =
         !q ||
-        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames, reimbursementText]
+        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames, reimbursementText, expenseKindText]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -209,6 +211,13 @@ export function TransactionsTable({
     const updated = await patchTransaction(id, { cleanDescription });
     if (!updated) return;
     setTransactions((current) => current.map((tx) => (tx.id === id ? { ...tx, cleanDescription } : tx)));
+  }
+
+  async function updateExpenseKind(id: string, value: string) {
+    const isFixedExpense = value === "fixed";
+    const updated = await patchTransaction(id, { isFixedExpense });
+    if (!updated) return;
+    setTransactions((current) => current.map((tx) => (tx.id === id ? { ...tx, isFixedExpense } : tx)));
   }
 
   function openInternalTransfer(tx: TransactionRow) {
@@ -432,6 +441,15 @@ export function TransactionsTable({
                     <Badge tone={tx.isInternalTransfer ? "neutral" : tx.reimbursementLinks.length > 0 ? "success" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
                       {tx.isInternalTransfer ? "Transferencia interna" : tx.reimbursementLinks.length > 0 ? "Reembolso" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
                     </Badge>
+                    {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone={tx.isFixedExpense ? "neutral" : "warning"}>{tx.isFixedExpense ? "Gasto fijo" : "Gasto variable"}</Badge>
+                        <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 min-w-36">
+                          <option value="variable">Variable</option>
+                          <option value="fixed">Fijo</option>
+                        </Select>
+                      </div>
+                    ) : null}
                     {tx.isInternalTransfer ? (
                       <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>Quitar interna</Button>
                     ) : (

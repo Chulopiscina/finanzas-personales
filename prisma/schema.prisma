@@ -144,6 +144,7 @@ model Transaction {
   balance         Decimal?        @db.Decimal(12, 2)
   type            TransactionType
   isInternalTransfer Boolean      @default(false)
+  isFixedExpense Boolean          @default(false)
   internalTransferGroupId String?
   internalTransferCounterAccountId String?
   planningGoals   PlanningGoalTransaction[]
@@ -161,6 +162,7 @@ model Transaction {
   @@index([importHistoryId])
   @@index([type])
   @@index([isInternalTransfer])
+  @@index([isFixedExpense])
   @@index([internalTransferGroupId])
 }
 

@@ -250,8 +250,8 @@ export async function detectAndMarkInternalTransfers(userId: string) {
   for (const pair of updates) {
     const groupId = `internal-${[pair.outId, pair.inId].sort().join("-")}`;
     await prisma.$transaction([
-      prisma.transaction.update({ where: { id: pair.outId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.inAccountId } }),
-      prisma.transaction.update({ where: { id: pair.inId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.outAccountId } })
+      prisma.transaction.update({ where: { id: pair.outId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, isFixedExpense: false, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.inAccountId } }),
+      prisma.transaction.update({ where: { id: pair.inId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, isFixedExpense: false, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.outAccountId } })
     ]);
   }
 
@@ -333,6 +333,8 @@ export async function getDashboardData(userId: string, accountId?: string | null
 
   const totalIncome = incomeTransactions.reduce((sum, tx) => sum + realIncome(tx), 0);
   const grossExpenses = expenseTransactions.reduce((sum, tx) => sum + signedExpense(tx), 0);
+  const fixedExpenses = expenseTransactions.filter((tx) => tx.isFixedExpense).reduce((sum, tx) => sum + signedExpense(tx), 0);
+  const variableExpenses = expenseTransactions.filter((tx) => !tx.isFixedExpense).reduce((sum, tx) => sum + signedExpense(tx), 0);
   const reimbursements = reimbursementTransactions.reduce((sum, tx) => sum + Math.abs(toNumber(tx.amount)), 0);
   const netExpenses = grossExpenses - reimbursements;
   const result = totalIncome - netExpenses;
@@ -368,6 +370,8 @@ export async function getDashboardData(userId: string, accountId?: string | null
       totalIncome,
       totalExpenses: grossExpenses,
       grossExpenses,
+      fixedExpenses,
+      variableExpenses,
       reimbursements,
       netExpenses,
       accumulatedSavings: result,

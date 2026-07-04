@@ -14,6 +14,7 @@ type TransactionBody = {
   amount?: number;
   type?: TransactionType;
   isInternalTransfer?: boolean;
+  isFixedExpense?: boolean;
   internalTransferCounterAccountId?: string | null;
   counterpartTransactionId?: string | null;
 };
@@ -54,6 +55,7 @@ async function linkManualInternalTransferPair(transactionId: string, counterpart
       data: {
         type: TransactionType.TRANSFER,
         isInternalTransfer: true,
+        isFixedExpense: false,
         internalTransferGroupId: groupId,
         internalTransferCounterAccountId: counterpart.accountId
       }
@@ -63,6 +65,7 @@ async function linkManualInternalTransferPair(transactionId: string, counterpart
       data: {
         type: TransactionType.TRANSFER,
         isInternalTransfer: true,
+        isFixedExpense: false,
         internalTransferGroupId: groupId,
         internalTransferCounterAccountId: transaction.accountId
       }
@@ -109,6 +112,7 @@ async function pairManualInternalTransfer(transactionId: string) {
       data: {
         type: TransactionType.TRANSFER,
         isInternalTransfer: true,
+        isFixedExpense: false,
         internalTransferGroupId: groupId,
         internalTransferCounterAccountId: counterpart.accountId
       }
@@ -118,6 +122,7 @@ async function pairManualInternalTransfer(transactionId: string) {
       data: {
         type: TransactionType.TRANSFER,
         isInternalTransfer: true,
+        isFixedExpense: false,
         internalTransferGroupId: groupId,
         internalTransferCounterAccountId: transaction.accountId
       }
@@ -137,6 +142,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const body = await readJson<TransactionBody>(request);
     let explicitCounterpartId: string | null = null;
+    const intendedType = body.isInternalTransfer === true ? TransactionType.TRANSFER : body.type ?? authorized.transaction.type;
+    const fixedExpenseValue = intendedType === TransactionType.EXPENSE
+      ? (typeof body.isFixedExpense === "boolean" ? body.isFixedExpense : undefined)
+      : (body.type !== undefined || body.isInternalTransfer === true ? false : undefined);
     if (body.accountId) {
       const account = await prisma.account.findUnique({ where: { id: body.accountId } });
       if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
@@ -186,6 +195,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         amount: typeof body.amount === "number" ? body.amount : undefined,
         type: body.isInternalTransfer === true ? TransactionType.TRANSFER : body.type,
         isInternalTransfer: typeof body.isInternalTransfer === "boolean" ? body.isInternalTransfer : undefined,
+        isFixedExpense: fixedExpenseValue,
         internalTransferCounterAccountId: body.isInternalTransfer === false ? null : body.internalTransferCounterAccountId === null ? null : body.internalTransferCounterAccountId || undefined,
         internalTransferGroupId: body.isInternalTransfer === false ? null : body.isInternalTransfer === true ? `manual-${id}` : undefined
       }

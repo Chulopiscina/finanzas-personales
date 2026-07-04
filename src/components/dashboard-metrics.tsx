@@ -153,6 +153,9 @@ function UpcomingPaymentsCard() {
 export function DashboardMetrics({ data }: { data: DashboardData }) {
   const [detailKey, setDetailKey] = useState<DashboardDetailKey | null>(null);
   const resultPositive = data.metrics.periodResult >= 0;
+  const expenseBase = data.metrics.grossExpenses > 0 ? data.metrics.grossExpenses : 0;
+  const fixedExpensePercent = expenseBase > 0 ? Math.round((data.metrics.fixedExpenses / expenseBase) * 100) : 0;
+  const variableExpensePercent = expenseBase > 0 ? Math.round((data.metrics.variableExpenses / expenseBase) * 100) : 0;
   const details = detailKey ? data.details[detailKey] : [];
   const detailTitle = useMemo(() => {
     const titles: Record<DashboardDetailKey, string> = {
@@ -179,8 +182,8 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
       </section>
 
       <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        <SpendingTypeCard title="Gastos fijos" amount={0} percent={0} icon="fixed" tone="purple" emptyText="No existen gastos fijos registrados." />
-        <SpendingTypeCard title="Gastos variables" amount={0} percent={0} icon="variable" tone="orange" emptyText="No existen gastos variables registrados." />
+        <SpendingTypeCard title="Gastos fijos" amount={data.metrics.fixedExpenses} percent={fixedExpensePercent} icon="fixed" tone="purple" emptyText="No existen gastos fijos registrados." />
+        <SpendingTypeCard title="Gastos variables" amount={data.metrics.variableExpenses} percent={variableExpensePercent} icon="variable" tone="orange" emptyText="No existen gastos variables registrados." />
         <FinanceCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} icon="transfer" tone="blue" onClick={() => setDetailKey("internalTransfers")} />
         <FinanceCard title="Sin categorizar" value={String(data.metrics.uncategorizedCount)} icon="uncategorized" tone="gray" onClick={() => setDetailKey("uncategorized")} />
       </section>
