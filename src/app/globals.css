@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 20% 98%;
+  --background: 0 0% 100%;
   --foreground: 224 20% 12%;
   --card: 0 0% 100%;
   --card-foreground: 224 20% 12%;
-  --muted: 210 16% 92%;
+  --muted: 210 20% 96%;
   --muted-foreground: 220 10% 42%;
-  --border: 214 16% 86%;
+  --border: 214 18% 90%;
   --accent: 173 70% 38%;
   --accent-foreground: 0 0% 100%;
   --success: 145 63% 42%;
@@ -44,11 +44,15 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
+  background: #ffffff;
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+.dark body {
   background:
     linear-gradient(180deg, rgba(20, 184, 166, 0.08), transparent 320px),
     hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-feature-settings: "rlig" 1, "calt" 1;
 }
 
 button,

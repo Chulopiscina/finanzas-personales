@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, CalendarClock, Landmark, PiggyBank, ReceiptText, Sigma, TrendingDown, X } from "lucide-react";
+import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Landmark, PiggyBank, ReceiptText, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,89 +8,104 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import type { DashboardData, DashboardDetailKey } from "@/lib/finance";
 import { cn } from "@/lib/utils";
 
-type Tone = "neutral" | "success" | "warning" | "danger";
-type IconKey = "landmark" | "income" | "expense" | "reimbursement" | "net" | "result" | "transfer" | "average" | "uncategorized" | "top";
+type CardTone = "green" | "red" | "blue" | "gray";
+type CardIcon = "balance" | "income" | "expense" | "result" | "transfer" | "uncategorized";
 
-const icons = {
-  landmark: Landmark,
-  income: ArrowUpCircle,
-  expense: ArrowDownCircle,
-  reimbursement: TrendingDown,
-  net: ReceiptText,
-  result: PiggyBank,
-  transfer: ArrowLeftRight,
-  average: Sigma,
-  uncategorized: ReceiptText,
-  top: CalendarClock
+const toneClasses: Record<CardTone, { border: string; icon: string; text: string }> = {
+  green: { border: "border-emerald-500/20", icon: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400", text: "text-emerald-600 dark:text-emerald-400" },
+  red: { border: "border-red-500/20", icon: "bg-red-500/10 text-red-600 dark:text-red-400", text: "text-red-600 dark:text-red-400" },
+  blue: { border: "border-blue-500/20", icon: "bg-blue-500/10 text-blue-600 dark:text-blue-400", text: "text-blue-600 dark:text-blue-400" },
+  gray: { border: "border-slate-400/25", icon: "bg-slate-500/10 text-slate-500 dark:text-slate-300", text: "text-muted-foreground" }
 };
 
-function DashboardButtonCard({ title, value, caption, icon, tone = "neutral", emphasis = false, onClick, className }: { title: string; value: string; caption: string; icon: IconKey; tone?: Tone; emphasis?: boolean; onClick?: () => void; className?: string }) {
+const icons = {
+  balance: Landmark,
+  income: ArrowUpCircle,
+  expense: ArrowDownCircle,
+  result: PiggyBank,
+  transfer: ArrowLeftRight,
+  uncategorized: ReceiptText
+};
+
+function FinanceCard({ title, value, icon, tone, indicator = "—", onClick, large = false, className }: { title: string; value: string; icon: CardIcon; tone: CardTone; indicator?: string; onClick?: () => void; large?: boolean; className?: string }) {
   const Icon = icons[icon];
-  return (
-    <button type="button" onClick={onClick} className={cn("rounded-lg border border-border bg-card p-4 text-left shadow-sm transition hover:border-accent/70 hover:bg-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/40", emphasis && "bg-muted/30", className)}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase text-muted-foreground">{title}</p>
-          <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", emphasis ? "text-3xl" : "text-2xl")}>{value}</p>
-        </div>
-        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-md border", tone === "neutral" && "border-border bg-muted text-muted-foreground", tone === "success" && "border-success/25 bg-success/10 text-success", tone === "warning" && "border-warning/25 bg-warning/10 text-warning", tone === "danger" && "border-danger/25 bg-danger/10 text-danger")}>
+  const colors = toneClasses[tone];
+  const cardClassName = cn(
+    "group rounded-2xl border bg-card p-5 text-left shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 ease-out dark:shadow-none",
+    colors.border,
+    onClick && "hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] focus:outline-none focus:ring-2 focus:ring-accent/30",
+    className
+  );
+  const content = (
+    <>
+      <div className="flex items-start justify-between gap-4">
+        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", colors.icon)}>
           <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
+        <span className={cn("rounded-full px-2 py-1 text-xs font-medium", colors.text)}>{indicator}</span>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{caption}</p>
-    </button>
+      <div className="mt-7">
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", large ? "text-4xl" : "text-3xl")}>{value}</p>
+      </div>
+    </>
   );
+
+  if (onClick) {
+    return <button type="button" onClick={onClick} className={cardClassName}>{content}</button>;
+  }
+
+  return <div className={cardClassName}>{content}</div>;
 }
 
 export function DashboardMetrics({ data }: { data: DashboardData }) {
   const [detailKey, setDetailKey] = useState<DashboardDetailKey | null>(null);
-  const resultTone = data.metrics.periodResult >= 0 ? "success" : "danger";
-  const monthlySavingsTone = data.metrics.monthlySavings >= 0 ? "success" : "danger";
+  const resultPositive = data.metrics.periodResult >= 0;
   const details = detailKey ? data.details[detailKey] : [];
   const detailTitle = useMemo(() => {
     const titles: Record<DashboardDetailKey, string> = {
-      realIncome: "Ingresos reales del periodo",
-      grossExpenses: "Gastos brutos del periodo",
-      reimbursements: "Reembolsos recibidos",
-      netExpenses: "Gastos netos reales",
-      periodResult: "Resultado del periodo",
+      realIncome: "Ingresos",
+      grossExpenses: "Gastos",
+      reimbursements: "Reembolsos",
+      netExpenses: "Gastos netos",
+      periodResult: "Ahorro del periodo",
       internalTransfers: "Transferencias internas",
       topCategory: "Mayor gasto",
-      uncategorized: "Movimientos sin categoría",
-      averageMonthlyNetExpense: "Media mensual de gasto neto"
+      uncategorized: "Sin categorizar",
+      averageMonthlyNetExpense: "Media mensual"
     };
     return detailKey ? titles[detailKey] : "Detalle";
   }, [detailKey]);
 
   return (
     <>
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-12">
-        <DashboardButtonCard title={data.selectedAccount ? "Saldo de la cuenta" : "Saldo total"} value={formatCurrency(data.metrics.currentBalance)} caption={data.selectedAccount ? "Último saldo conocido de esta cuenta." : "Suma de saldos actuales de cuentas activas."} icon="landmark" emphasis className="xl:col-span-3" />
-        <DashboardButtonCard title="Ingresos reales del periodo" value={formatCurrency(data.metrics.totalIncome)} caption="Entradas reales del periodo, sin reembolsos ni movimientos entre cuentas propias." icon="income" tone="success" className="xl:col-span-3" onClick={() => setDetailKey("realIncome")} />
-        <DashboardButtonCard title="Gastos brutos del periodo" value={formatCurrency(data.metrics.grossExpenses)} caption="Salidas reales antes de descontar Bizums u otros reembolsos." icon="expense" tone="danger" className="xl:col-span-3" onClick={() => setDetailKey("grossExpenses")} />
-        <DashboardButtonCard title="Resultado del periodo" value={formatCurrency(data.metrics.periodResult)} caption="Ingresos reales menos gastos netos reales del periodo seleccionado." icon="result" tone={resultTone} className="xl:col-span-3" onClick={() => setDetailKey("periodResult")} />
-        <DashboardButtonCard title="Reembolsos recibidos" value={formatCurrency(data.metrics.reimbursements)} caption="Ingresos marcados como reembolso y vinculados a gastos." icon="reimbursement" tone="success" className="xl:col-span-2" onClick={() => setDetailKey("reimbursements")} />
-        <DashboardButtonCard title="Gastos netos reales" value={formatCurrency(data.metrics.netExpenses)} caption="Gastos brutos menos reembolsos recibidos en el periodo." icon="net" tone="warning" className="xl:col-span-2" onClick={() => setDetailKey("netExpenses")} />
-        <DashboardButtonCard title="Ahorro mensual" value={formatCurrency(data.metrics.monthlySavings)} caption="Resultado del último mes dentro del periodo seleccionado." icon="result" tone={monthlySavingsTone} className="xl:col-span-2" onClick={() => setDetailKey("periodResult")} />
-        <DashboardButtonCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} caption="Movimientos entre tus cuentas; no cuentan como gasto ni ingreso real." icon="transfer" tone="neutral" className="xl:col-span-2" onClick={() => setDetailKey("internalTransfers")} />
-        <DashboardButtonCard title="Media mensual de gasto neto" value={formatCurrency(data.metrics.averageMonthlyExpense)} caption="Promedio mensual de gastos después de descontar reembolsos." icon="average" tone="warning" className="xl:col-span-2" onClick={() => setDetailKey("averageMonthlyNetExpense")} />
-        <DashboardButtonCard title="Sin categoría" value={String(data.metrics.uncategorizedCount)} caption="Movimientos del periodo que conviene revisar." icon="uncategorized" tone={data.metrics.uncategorizedCount > 0 ? "warning" : "success"} className="xl:col-span-1" onClick={() => setDetailKey("uncategorized")} />
-        <DashboardButtonCard title="Mayor gasto" value={data.metrics.topCategory} caption={`${formatCurrency(data.metrics.topCategoryAmount)} netos · Actualizado: ${formatDate(data.metrics.lastUpdate)}`} icon="top" className="xl:col-span-1" onClick={() => setDetailKey("topCategory")} />
+      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <FinanceCard title={data.selectedAccount ? "Saldo" : "Saldo total"} value={formatCurrency(data.metrics.currentBalance)} icon="balance" tone="green" large />
+        <FinanceCard title="Ingresos" value={formatCurrency(data.metrics.totalIncome)} icon="income" tone="green" onClick={() => setDetailKey("realIncome")} />
+        <FinanceCard title="Gastos" value={formatCurrency(data.metrics.grossExpenses)} icon="expense" tone="red" onClick={() => setDetailKey("grossExpenses")} />
+        <FinanceCard title="Ahorro del periodo" value={formatCurrency(data.metrics.periodResult)} icon="result" tone={resultPositive ? "blue" : "red"} onClick={() => setDetailKey("periodResult")} />
+      </section>
+
+      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <FinanceCard title="Transferencias internas" value={formatCurrency(data.metrics.internalTransferTotal)} icon="transfer" tone="blue" onClick={() => setDetailKey("internalTransfers")} className="xl:col-span-2" />
+        <FinanceCard title="Sin categorizar" value={String(data.metrics.uncategorizedCount)} icon="uncategorized" tone="gray" onClick={() => setDetailKey("uncategorized")} className="xl:col-span-2" />
       </section>
 
       {detailKey ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <div className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-lg border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between gap-3 border-b border-border p-4">
+          <div className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-border p-5">
               <div>
-                <h3 className="text-base font-semibold text-card-foreground">{detailTitle}</h3>
+                <h3 className="text-lg font-semibold text-card-foreground">{detailTitle}</h3>
                 <p className="text-sm text-muted-foreground">{details.length} movimientos · {data.periodLabel}</p>
               </div>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setDetailKey(null)} title="Cerrar"><X className="h-4 w-4" /></Button>
+              <Button type="button" variant="ghost" size="icon" onClick={() => setDetailKey(null)} title="Cerrar">
+                <X className="h-4 w-4" />
+              </Button>
             </div>
             <div className="max-h-[70vh] overflow-auto">
               {details.length === 0 ? (
-                <p className="p-5 text-sm text-muted-foreground">No hay movimientos para este detalle.</p>
+                <p className="p-6 text-sm text-muted-foreground">No hay movimientos para este detalle.</p>
               ) : (
                 <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead className="sticky top-0 bg-muted text-left text-xs uppercase text-muted-foreground">

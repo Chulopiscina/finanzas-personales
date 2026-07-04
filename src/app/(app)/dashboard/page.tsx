@@ -1,4 +1,4 @@
-import { Role } from "@prisma/client";
+﻿import { Role } from "@prisma/client";
 import { DashboardAccountSelector } from "@/components/dashboard-account-selector";
 import { DashboardCharts } from "@/components/dashboard-charts";
 import { DashboardMetrics } from "@/components/dashboard-metrics";
@@ -19,6 +19,10 @@ function parsePeriod(value?: string): DashboardPeriod {
   return validPeriods.includes(value as DashboardPeriod) ? (value as DashboardPeriod) : "last-imported-month";
 }
 
+function firstName(name: string) {
+  return name.trim().split(/\s+/)[0] || "Oriol";
+}
+
 export default async function DashboardPage({ searchParams }: Props) {
   const session = await getSessionUser();
   if (!session) return null;
@@ -32,68 +36,67 @@ export default async function DashboardPage({ searchParams }: Props) {
     getPlanningGoalProgress(userId, { dashboardOnly: true })
   ]);
 
-  const scopeLabel = owner ? `${owner.name} - ${owner.email}` : data.selectedAccount ? `Cuenta seleccionada: ${data.selectedAccount.name}` : "Todas las cuentas activas";
+  const displayName = owner?.name ?? session.user.name;
+  const scopeLabel = owner ? owner.email : data.selectedAccount ? data.selectedAccount.name : "Todas las cuentas";
+  const periodResult = data.metrics.periodResult;
+  const resultCopy = periodResult >= 0
+    ? `Este periodo vas en positivo con ${formatCurrency(periodResult)}.`
+    : `Este periodo llevas ${formatCurrency(Math.abs(periodResult))} más de gasto neto que ingresos.`;
 
   return (
-    <div className="space-y-5">
-      <header className="grid gap-4 xl:grid-cols-[1fr_auto_auto] xl:items-center">
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase text-muted-foreground">Panel financiero</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-foreground">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{scopeLabel} · {data.periodLabel}</p>
+    <div className="space-y-10">
+      <header className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-center">
+        <div className="min-w-0 space-y-2">
+          <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">Hola {firstName(displayName)} 👋</h1>
+          <p className="max-w-2xl text-base text-muted-foreground">{resultCopy}</p>
+          <p className="text-sm text-muted-foreground">{scopeLabel} · {data.periodLabel}</p>
         </div>
-        <DashboardPeriodSelector period={period} />
-        <DashboardAccountSelector accounts={data.accounts} selectedAccountId={data.selectedAccount?.id ?? null} />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center xl:justify-end">
+          <DashboardPeriodSelector period={period} />
+          <DashboardAccountSelector accounts={data.accounts} selectedAccountId={data.selectedAccount?.id ?? null} />
+        </div>
       </header>
 
       <DashboardMetrics data={data} />
-      <DashboardCharts categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
 
-      <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+      {planningGoals.length > 0 ? (
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:shadow-none">
+          <div className="mb-5 flex items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-card-foreground">Planificación</h2>
-            <p className="text-sm text-muted-foreground">Objetivos personalizados visibles en dashboard.</p>
+            <span className="text-xs text-muted-foreground">{planningGoals.length} visibles</span>
           </div>
-          <p className="text-xs text-muted-foreground">No incluye transferencias internas como gasto real.</p>
-        </div>
-        {planningGoals.length === 0 ? (
-          <p className="mt-4 rounded-md bg-muted/40 px-3 py-3 text-sm text-muted-foreground">No hay objetivos marcados para mostrar en dashboard.</p>
-        ) : (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {planningGoals.map((goal) => (
-              <article key={goal.id} className="rounded-lg border border-border bg-muted/30 p-3">
+              <article key={goal.id} className="rounded-2xl border border-border bg-background p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.05)] dark:bg-muted/20 dark:shadow-none">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-card-foreground">{goal.name}</p>
-                    <p className="text-xs text-muted-foreground">{goal.periodLabel}{goal.accountName ? ` - ${goal.accountName}` : ""}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{goal.periodLabel}{goal.accountName ? ` · ${goal.accountName}` : ""}</p>
                   </div>
                   <span className={goal.tone === "success" ? "text-xs font-medium text-success" : goal.tone === "danger" ? "text-xs font-medium text-danger" : goal.tone === "warning" ? "text-xs font-medium text-warning" : "text-xs font-medium text-muted-foreground"}>{goal.progressPercent} %</span>
                 </div>
-                <div className="mt-3 h-2 rounded-full bg-background"><div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(0, Math.min(100, goal.progressPercent))}%`, backgroundColor: goal.color ?? undefined }} /></div>
-                <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-                  <span className="text-muted-foreground">{formatCurrency(goal.actualAmount)} / {formatCurrency(goal.targetAmount)}</span>
-                  <span className="font-medium text-card-foreground">Dif. {formatCurrency(goal.difference)}</span>
+                <div className="mt-4 h-2 rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-accent transition-all duration-200" style={{ width: `${Math.max(0, Math.min(100, goal.progressPercent))}%`, backgroundColor: goal.color ?? undefined }} />
                 </div>
-                {!goal.hasData ? <p className="mt-2 text-xs text-warning">Sin datos suficientes para este periodo.</p> : null}
+                <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">{formatCurrency(goal.actualAmount)}</span>
+                  <span className="font-medium text-card-foreground">{formatCurrency(goal.targetAmount)}</span>
+                </div>
               </article>
             ))}
           </div>
-        )}
-      </section>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-card-foreground">Últimos extractos</h2><span className="text-xs text-muted-foreground">{data.recentImports.length} recientes</span></div>
-          <div className="mt-3 space-y-2">
-            {data.recentImports.length === 0 ? <p className="rounded-md bg-muted/40 px-3 py-3 text-sm text-muted-foreground">Aún no hay extractos subidos.</p> : data.recentImports.map((item) => (
-              <div key={item.id} className="rounded-md bg-muted/50 px-3 py-2 text-sm"><p className="truncate font-medium text-foreground">{item.fileName}</p><p className="text-muted-foreground">{item.accountName} - {item.insertedRows} movimientos</p></div>
-            ))}
-          </div>
         </section>
-        <section className="rounded-lg border border-border bg-card p-4 shadow-sm"><h2 className="text-base font-semibold text-card-foreground">Resumen del periodo</h2><div className="mt-3 space-y-2">{data.insights.map((insight) => <p key={insight} className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{insight}</p>)}</div></section>
-        <section className="rounded-lg border border-border bg-card p-4 shadow-sm"><h2 className="text-base font-semibold text-card-foreground">Avisos</h2><div className="mt-3 space-y-2">{data.recommendations.map((tip) => <p key={tip} className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">{tip}</p>)}</div></section>
-      </div>
+      ) : null}
+
+      <section className="space-y-4">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Gráficos</h2>
+            <p className="text-sm text-muted-foreground">Resumen visual del periodo seleccionado.</p>
+          </div>
+        </div>
+        <DashboardCharts categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
+      </section>
     </div>
   );
 }
