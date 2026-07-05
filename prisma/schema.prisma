@@ -65,6 +65,20 @@ enum PlanningStatus {
   ARCHIVED
 }
 
+enum RecurringPaymentFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  ONCE
+  OTHER
+}
+
+enum RecurringPaymentStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+}
+
 model User {
   id               String           @id @default(cuid())
   name             String
@@ -81,6 +95,7 @@ model User {
   accounts         Account[]
   categories       Category[]
   planningGoals    PlanningGoal[]
+  recurringPayments RecurringPayment[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -102,6 +117,7 @@ model Account {
   transactions  Transaction[]
   imports       ImportHistory[]
   planningGoals PlanningGoal[]
+  recurringPayments RecurringPayment[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -118,6 +134,7 @@ model Category {
   isArchived   Boolean       @default(false)
   transactions Transaction[]
   planningGoals PlanningGoalCategory[]
+  recurringPayments RecurringPayment[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -223,6 +240,29 @@ model TransactionReimbursement {
 
   @@id([reimbursementId, expenseId])
   @@index([expenseId])
+}
+
+model RecurringPayment {
+  id             String                    @id @default(cuid())
+  userId         String
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId      String?
+  account        Account?                  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  categoryId     String?
+  category       Category?                 @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name           String
+  amount         Decimal                   @db.Decimal(12, 2)
+  nextChargeDate DateTime
+  frequency      RecurringPaymentFrequency
+  description    String?
+  status         RecurringPaymentStatus    @default(ACTIVE)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([userId, status])
+  @@index([userId, nextChargeDate])
+  @@index([accountId])
+  @@index([categoryId])
 }
 
 model MonthlySummary {

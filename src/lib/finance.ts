@@ -1,6 +1,7 @@
-import { AccountType, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
+import { AccountType, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
+import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
 
 type ReimbursementLink = {
   expenseId: string;
@@ -315,11 +316,17 @@ export async function getDashboardData(userId: string, accountId?: string | null
     reimbursedByLinks: { include: { reimbursement: { include: { category: true, account: true } } } }
   };
 
-  const [allTransactions, balanceTransactions, lastImport, recentImports] = await Promise.all([
+  const [allTransactions, balanceTransactions, lastImport, recentImports, recurringPayments] = await Promise.all([
     prisma.transaction.findMany({ where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } }, include: transactionInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
     prisma.transaction.findMany({ where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } }, select: { accountId: true, amount: true, balance: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
     prisma.importHistory.findFirst({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, orderBy: { createdAt: "desc" } }),
-    prisma.importHistory.findMany({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, include: { account: true }, orderBy: { createdAt: "desc" }, take: 5 })
+    prisma.importHistory.findMany({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, include: { account: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.recurringPayment.findMany({
+      where: { userId, status: RecurringPaymentStatus.ACTIVE, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : {}) },
+      include: { account: { select: { id: true, name: true } }, category: { select: { id: true, name: true, color: true } } },
+      orderBy: [{ nextChargeDate: "asc" }, { createdAt: "desc" }],
+      take: 50
+    })
   ]);
 
   const range = periodRange(period, allTransactions);
@@ -346,6 +353,23 @@ export async function getDashboardData(userId: string, accountId?: string | null
   const currentMonthSavings = monthly.at(-1)?.savings ?? 0;
   const topCategory = categories[0] ?? null;
   const topCategoryTransactions = topCategory ? expenseTransactions.filter((tx) => (tx.category?.name ?? "Sin categoría") === topCategory.name) : [];
+  const upcomingPayments = recurringPayments
+    .map((payment) => {
+      const projected = nextRecurringPaymentDate(payment.nextChargeDate, payment.frequency);
+      if (!projected) return null;
+      return {
+        id: payment.id,
+        name: payment.name,
+        amount: toNumber(payment.amount),
+        date: projected.toISOString(),
+        accountName: payment.account?.name ?? "Sin cuenta",
+        categoryName: payment.category?.name ?? null,
+        daysUntil: daysUntil(projected)
+      };
+    })
+    .filter((payment): payment is NonNullable<typeof payment> => Boolean(payment))
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .slice(0, 5);
 
   const netExpenseDetailIds = new Set([...expenseTransactions.map((tx) => tx.id), ...reimbursementTransactions.map((tx) => tx.id)]);
   const details = {
@@ -394,6 +418,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
     insights: buildInsights(monthly, categories),
     recommendations: recommendations(categories, monthly, uncategorizedTransactions.length),
     recentImports: recentImports.map((item) => ({ id: item.id, fileName: item.fileName, accountName: item.account.name, createdAt: item.createdAt.toISOString(), insertedRows: item.insertedRows })),
+    upcomingPayments,
     recentTransactions: transactions.slice(0, 8).map((tx) => ({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount), type: tx.type, category: tx.category?.name ?? "Sin categoría", account: tx.account?.name ?? "Cuenta", isReimbursement: isReimbursement(tx), linkedReimbursementAmount: allocations.get(tx.id) ?? 0 }))
   };
 }

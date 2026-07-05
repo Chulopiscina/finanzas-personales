@@ -128,7 +128,15 @@ function PreparedFeatureCard({ title, subtitle, buttonLabel, href, icon, tone }:
   );
 }
 
-function UpcomingPaymentsCard() {
+function paymentDaysLabel(days: number) {
+  if (days === 0) return "Hoy";
+  if (days === 1) return "Falta 1 d?a";
+  return `Faltan ${days} d?as`;
+}
+
+function UpcomingPaymentsCard({ payments }: { payments: DashboardData["upcomingPayments"] }) {
+  const hasPayments = payments.length > 0;
+
   return (
     <section className="rounded-2xl border border-blue-500/20 bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
@@ -137,15 +145,32 @@ function UpcomingPaymentsCard() {
             <ReceiptText className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Próximos pagos</p>
-            <p className="mt-1 text-2xl font-semibold text-card-foreground">No hay pagos recurrentes</p>
+            <p className="text-sm font-medium text-muted-foreground">Pr?ximos pagos</p>
+            <p className="mt-1 text-2xl font-semibold text-card-foreground">{hasPayments ? `${payments.length} previstos` : "No hay pagos recurrentes"}</p>
           </div>
         </div>
-        <Link href="/planning/recurring-payments" className={actionLinkClass}>Añadir pago recurrente</Link>
+        <Link href="/planning/recurring-payments" className={actionLinkClass}>A?adir pago recurrente</Link>
       </div>
-      <div className="mt-5 rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-        No tienes pagos recurrentes configurados.
-      </div>
+      {hasPayments ? (
+        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          {payments.map((payment) => (
+            <article key={payment.id} className="rounded-2xl border border-border bg-background p-4 transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(15,23,42,0.05)] dark:bg-muted/20 dark:shadow-none">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-card-foreground">{payment.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{formatDate(payment.date)} - {paymentDaysLabel(payment.daysUntil)}</p>
+                </div>
+                <span className="whitespace-nowrap text-sm font-semibold text-card-foreground">{formatCurrency(payment.amount)}</span>
+              </div>
+              <p className="mt-3 truncate text-xs text-muted-foreground">{payment.accountName}{payment.categoryName ? ` - ${payment.categoryName}` : ""}</p>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+          No tienes pagos recurrentes configurados.
+        </div>
+      )}
     </section>
   );
 }
@@ -193,7 +218,7 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
         <PreparedFeatureCard title="Objetivo de ahorro" subtitle="No hay un objetivo configurado" buttonLabel="Crear objetivo" href="/planning" icon="goal" tone="blue" />
       </section>
 
-      <UpcomingPaymentsCard />
+      <UpcomingPaymentsCard payments={data.upcomingPayments} />
 
       {detailKey ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -245,3 +270,5 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
     </>
   );
 }
+
+
