@@ -79,6 +79,13 @@ enum RecurringPaymentStatus {
   CANCELED
 }
 
+enum BudgetBlockType {
+  FIXED
+  VARIABLE
+  EXTRA
+  SAVINGS
+}
+
 model User {
   id               String           @id @default(cuid())
   name             String
@@ -96,6 +103,7 @@ model User {
   categories       Category[]
   planningGoals    PlanningGoal[]
   recurringPayments RecurringPayment[]
+  monthlyBudgets MonthlyBudget[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -118,6 +126,7 @@ model Account {
   imports       ImportHistory[]
   planningGoals PlanningGoal[]
   recurringPayments RecurringPayment[]
+  monthlyBudgets MonthlyBudget[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -135,6 +144,7 @@ model Category {
   transactions Transaction[]
   planningGoals PlanningGoalCategory[]
   recurringPayments RecurringPayment[]
+  budgetCategories MonthlyBudgetCategory[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -263,6 +273,38 @@ model RecurringPayment {
   @@index([userId, nextChargeDate])
   @@index([accountId])
   @@index([categoryId])
+}
+
+model MonthlyBudget {
+  id               String                  @id @default(cuid())
+  userId           String
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId        String?
+  account          Account?                @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  month            DateTime
+  expectedIncome   Decimal                 @default(0) @db.Decimal(12, 2)
+  fixedLimit       Decimal                 @default(0) @db.Decimal(12, 2)
+  variableLimit    Decimal                 @default(0) @db.Decimal(12, 2)
+  extraLimit       Decimal                 @default(0) @db.Decimal(12, 2)
+  savingsGoal      Decimal                 @default(0) @db.Decimal(12, 2)
+  categories       MonthlyBudgetCategory[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@index([userId, month])
+  @@index([accountId])
+}
+
+model MonthlyBudgetCategory {
+  budgetId   String
+  categoryId String
+  block      BudgetBlockType
+  budget     MonthlyBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  category   Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([budgetId, categoryId])
+  @@index([categoryId])
+  @@index([block])
 }
 
 model MonthlySummary {

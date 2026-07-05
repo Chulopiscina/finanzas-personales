@@ -1,4 +1,4 @@
-import { AccountType, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
+import { AccountType, BudgetBlockType, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
@@ -354,6 +354,99 @@ function internalTransferTotal(transactions: TransactionWithCategory[], selected
   return [...grouped.values()].reduce((sum, amount) => sum + amount, 0);
 }
 
+type BudgetWithCategories = { accountId: string | null; month: Date; expectedIncome: unknown; fixedLimit: unknown; variableLimit: unknown; extraLimit: unknown; savingsGoal: unknown; categories: Array<{ categoryId: string; block: BudgetBlockType }> };
+
+type BudgetBlockSummary = { limit: number; actual: number; percent: number; remaining: number };
+
+function budgetMonthKey(date: Date) {
+  return monthKey(startOfMonth(date));
+}
+
+function rangeIncludesBudgetMonth(month: Date, range: DashboardRange, period: DashboardPeriod) {
+  if (period === "all" || period === "payroll-all") return true;
+  if (!range.start) return true;
+  const monthStart = startOfMonth(month);
+  const start = startOfMonth(range.start);
+  if (!range.end) {
+    if (period === "payroll-last-3") return monthStart >= start && monthStart <= startOfMonth(new Date());
+    return budgetMonthKey(monthStart) === budgetMonthKey(start);
+  }
+  return monthStart >= start && monthStart < startOfMonth(range.end);
+}
+
+function selectBudgetsForDashboard(budgets: BudgetWithCategories[], selectedAccount: Account | null, range: DashboardRange, period: DashboardPeriod) {
+  const inRange = budgets.filter((budget) => rangeIncludesBudgetMonth(budget.month, range, period));
+  if (!selectedAccount) return inRange.filter((budget) => budget.accountId === null);
+
+  const grouped = new Map<string, BudgetWithCategories[]>();
+  for (const budget of inRange.filter((item) => item.accountId === null || item.accountId === selectedAccount.id)) {
+    const key = budgetMonthKey(budget.month);
+    grouped.set(key, [...(grouped.get(key) ?? []), budget]);
+  }
+
+  return [...grouped.values()].flatMap((items) => {
+    const accountSpecific = items.filter((item) => item.accountId === selectedAccount.id);
+    return accountSpecific.length > 0 ? accountSpecific : items.filter((item) => item.accountId === null);
+  });
+}
+
+function blockSummary(limit: number, actual: number): BudgetBlockSummary {
+  return {
+    limit,
+    actual,
+    percent: limit > 0 ? Math.round((actual / limit) * 100) : 0,
+    remaining: limit - actual
+  };
+}
+
+function buildBudgetSummary(budgets: BudgetWithCategories[], transactions: TransactionWithCategory[], allocations: Map<string, number>) {
+  const selected = budgets;
+  const fixedLimit = selected.reduce((sum, budget) => sum + toNumber(budget.fixedLimit), 0);
+  const variableLimit = selected.reduce((sum, budget) => sum + toNumber(budget.variableLimit), 0);
+  const extraLimit = selected.reduce((sum, budget) => sum + toNumber(budget.extraLimit), 0);
+  const savingsGoal = selected.reduce((sum, budget) => sum + toNumber(budget.savingsGoal), 0);
+  const expectedIncome = selected.reduce((sum, budget) => sum + toNumber(budget.expectedIncome), 0);
+  const categoryBlocks = new Map<string, BudgetBlockType>();
+
+  for (const budget of selected) {
+    for (const item of budget.categories) categoryBlocks.set(item.categoryId, item.block);
+  }
+
+  const actual = { fixed: 0, variable: 0, extra: 0, savings: 0 };
+  for (const tx of transactions) {
+    const expense = signedExpense(tx);
+    if (expense <= 0) continue;
+    const netExpense = Math.max(0, expense - (allocations.get(tx.id) ?? 0));
+    if (netExpense <= 0) continue;
+    const block = tx.categoryId ? categoryBlocks.get(tx.categoryId) : null;
+    if (block === BudgetBlockType.FIXED) actual.fixed += netExpense;
+    else if (block === BudgetBlockType.EXTRA) actual.extra += netExpense;
+    else if (block === BudgetBlockType.SAVINGS) actual.savings += netExpense;
+    else if (block === BudgetBlockType.VARIABLE) actual.variable += netExpense;
+    else if (tx.isFixedExpense) actual.fixed += netExpense;
+    else actual.variable += netExpense;
+  }
+
+  const totalLimit = fixedLimit + variableLimit + extraLimit;
+  const spent = actual.fixed + actual.variable + actual.extra;
+  return {
+    configured: selected.length > 0,
+    count: selected.length,
+    expectedIncome,
+    totalLimit,
+    spent,
+    percent: totalLimit > 0 ? Math.round((spent / totalLimit) * 100) : 0,
+    remaining: totalLimit - spent,
+    status: totalLimit <= 0 ? "empty" : spent > totalLimit ? "over" : spent / totalLimit >= 0.85 ? "warning" : "ok",
+    blocks: {
+      fixed: blockSummary(fixedLimit, actual.fixed),
+      variable: blockSummary(variableLimit, actual.variable),
+      extra: blockSummary(extraLimit, actual.extra),
+      savings: blockSummary(savingsGoal, actual.savings)
+    }
+  };
+}
+
 function detailRow(tx: TransactionWithCategory) {
   const linkedExpenses = (tx.reimbursementLinks ?? []).map((link) => link.expense?.cleanDescription || link.expense?.concept).filter(Boolean) as string[];
   const linkedReimbursements = (tx.reimbursedByLinks ?? []).map((link) => link.reimbursement?.cleanDescription || link.reimbursement?.concept).filter(Boolean) as string[];
@@ -402,7 +495,13 @@ export async function getDashboardData(userId: string, accountId?: string | null
 
   const range = periodRange(period, allTransactions, periodMode);
   const transactions = allTransactions.filter((tx) => inPeriod(tx, range));
+  const budgetCandidates = await prisma.monthlyBudget.findMany({
+    where: { userId, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : { accountId: null }) },
+    include: { categories: true, account: { select: { id: true, name: true } } },
+    orderBy: [{ month: "asc" }, { createdAt: "asc" }]
+  });
   const allocations = reimbursementAllocation(transactions);
+  const budgetSummary = buildBudgetSummary(selectBudgetsForDashboard(budgetCandidates, selectedAccount, range, period), transactions, allocations);
   const incomeTransactions = transactions.filter((tx) => realIncome(tx) > 0);
   const expenseTransactions = transactions.filter((tx) => signedExpense(tx) > 0);
   const reimbursementTransactions = transactions.filter(isReimbursement);
@@ -481,6 +580,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
       lastUpdate: lastImport?.createdAt?.toISOString() ?? null,
       uncategorizedCount: uncategorizedTransactions.length
     },
+    budget: budgetSummary,
     details,
     charts: {
       categories,

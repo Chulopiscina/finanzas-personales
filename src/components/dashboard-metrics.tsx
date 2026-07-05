@@ -98,6 +98,55 @@ function SpendingTypeCard({ title, amount, percent, icon, tone, emptyText }: { t
   );
 }
 
+function BudgetDashboardCard({ budget }: { budget: DashboardData["budget"] }) {
+  const colors = toneClasses.orange;
+  if (!budget.configured) {
+    return <PreparedFeatureCard title="Presupuesto mensual" subtitle="Sin presupuesto configurado" buttonLabel="Configurar presupuesto" href="/planning/budget" icon="budget" tone="orange" />;
+  }
+
+  const statusText = budget.status === "over" ? "Te est?s pasando" : budget.status === "warning" ? "Cerca del l?mite" : "Vas bien";
+  const statusTone = budget.status === "over" ? "text-danger" : budget.status === "warning" ? "text-warning" : "text-success";
+  const rows = [
+    ["Gastos fijos", budget.blocks.fixed],
+    ["Gastos variables", budget.blocks.variable],
+    ["Gastos extras", budget.blocks.extra],
+    ["Ahorro", budget.blocks.savings]
+  ] as const;
+
+  return (
+    <article className={cn("flex h-full min-h-[230px] flex-col rounded-2xl border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none", colors.border)}>
+      <div className="flex items-start justify-between gap-4">
+        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", colors.icon)}>
+          <WalletCards className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <span className={cn("rounded-full px-2 py-1 text-xs font-medium", statusTone)}>{statusText}</span>
+      </div>
+      <div className="mt-6 grid flex-1 gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-muted-foreground">Presupuesto mensual</p>
+          <p className="mt-2 text-2xl font-semibold tracking-normal text-card-foreground">{formatCurrency(budget.spent)} / {formatCurrency(budget.totalLimit)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">Restante: {formatCurrency(budget.remaining)}</p>
+        </div>
+        <Link href="/planning/budget" className={actionLinkClass}>Editar</Link>
+      </div>
+      <div className="mt-5 space-y-3">
+        <ProgressLine value={budget.percent} tone="orange" />
+        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+          {rows.map(([label, row]) => (
+            <div key={label} className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span>{label}</span>
+                <span>{formatCurrency(row.actual)} / {formatCurrency(row.limit)}</span>
+              </div>
+              <ProgressLine value={row.percent} tone={label === "Ahorro" ? "blue" : "orange"} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function PreparedFeatureCard({ title, subtitle, buttonLabel, href, icon, tone }: { title: string; subtitle: string; buttonLabel: string; href: string; icon: CardIcon; tone: CardTone }) {
   const Icon = icons[icon];
   const colors = toneClasses[tone];

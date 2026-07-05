@@ -1,36 +1,88 @@
-﻿import Link from "next/link";
-import { WalletCards } from "lucide-react";
+import { BudgetBlockType, TransactionType } from "@prisma/client";
+import { BudgetManager } from "@/components/budget-manager";
 import { getSessionUser } from "@/lib/auth";
+import { toNumber } from "@/lib/finance";
+import { prisma } from "@/lib/prisma";
 
-export default async function BudgetPlaceholderPage() {
+function addMonths(date: Date, months: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+function blockProgress(limit: number, actual: number) {
+  return { limit, actual, percent: limit > 0 ? Math.round((actual / limit) * 100) : 0, remaining: limit - actual };
+}
+
+async function budgetProgress(budget: any) {
+  const start = budget.month;
+  const end = addMonths(start, 1);
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId: budget.userId,
+      date: { gte: start, lt: end },
+      isInternalTransfer: false,
+      type: TransactionType.EXPENSE,
+      ...(budget.accountId ? { accountId: budget.accountId } : {})
+    },
+    include: { reimbursedByLinks: { include: { reimbursement: true } } }
+  });
+  const categoryBlocks = new Map<string, BudgetBlockType>();
+  for (const item of budget.categories) categoryBlocks.set(item.categoryId, item.block);
+  const actual = { fixed: 0, variable: 0, extra: 0, savings: 0 };
+  for (const tx of transactions) {
+    const reimbursements = tx.reimbursedByLinks.reduce((sum, link) => sum + Math.abs(toNumber(link.reimbursement.amount)), 0);
+    const value = Math.max(0, Math.abs(toNumber(tx.amount)) - reimbursements);
+    const block = tx.categoryId ? categoryBlocks.get(tx.categoryId) : null;
+    if (block === BudgetBlockType.FIXED) actual.fixed += value;
+    else if (block === BudgetBlockType.EXTRA) actual.extra += value;
+    else if (block === BudgetBlockType.SAVINGS) actual.savings += value;
+    else if (block === BudgetBlockType.VARIABLE) actual.variable += value;
+    else if (tx.isFixedExpense) actual.fixed += value;
+    else actual.variable += value;
+  }
+  const fixed = blockProgress(toNumber(budget.fixedLimit), actual.fixed);
+  const variable = blockProgress(toNumber(budget.variableLimit), actual.variable);
+  const extra = blockProgress(toNumber(budget.extraLimit), actual.extra);
+  const savings = blockProgress(toNumber(budget.savingsGoal), actual.savings);
+  const totalLimit = fixed.limit + variable.limit + extra.limit;
+  const spent = fixed.actual + variable.actual + extra.actual;
+  return { fixed, variable, extra, savings, totalLimit, spent, percent: totalLimit > 0 ? Math.round((spent / totalLimit) * 100) : 0, remaining: totalLimit - spent };
+}
+
+export default async function BudgetPage() {
   const session = await getSessionUser();
   if (!session) return null;
+
+  const [budgets, accounts, categories] = await Promise.all([
+    prisma.monthlyBudget.findMany({
+      where: { userId: session.user.id },
+      include: { account: { select: { id: true, name: true } }, categories: { include: { category: { select: { id: true, name: true, color: true } } } } },
+      orderBy: [{ month: "desc" }, { createdAt: "desc" }]
+    }),
+    prisma.account.findMany({ where: { userId: session.user.id, isArchived: false }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } }),
+    prisma.category.findMany({ where: { OR: [{ userId: null }, { userId: session.user.id }], isArchived: false }, select: { id: true, name: true, color: true }, orderBy: { name: "asc" } })
+  ]);
+
+  const rows = await Promise.all(budgets.map(async (budget) => ({
+    id: budget.id,
+    month: budget.month.toISOString(),
+    accountId: budget.accountId ?? "",
+    accountName: budget.account?.name ?? null,
+    expectedIncome: toNumber(budget.expectedIncome),
+    fixedLimit: toNumber(budget.fixedLimit),
+    variableLimit: toNumber(budget.variableLimit),
+    extraLimit: toNumber(budget.extraLimit),
+    savingsGoal: toNumber(budget.savingsGoal),
+    categories: budget.categories.map((item) => ({ block: item.block, categoryId: item.categoryId })),
+    progress: await budgetProgress(budget)
+  })));
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-normal text-foreground">Presupuesto mensual</h1>
-        <p className="text-sm text-muted-foreground">Esta sección queda preparada para configurar presupuestos cuando se conecte la lógica.</p>
+        <p className="text-sm text-muted-foreground">Crea límites por mes, cuenta y bloque de gasto. No crea movimientos reales.</p>
       </header>
-      <section className="rounded-2xl border border-orange-500/20 bg-card p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)] dark:shadow-none">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-300">
-              <WalletCards className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Estado</p>
-              <p className="mt-1 text-2xl font-semibold text-card-foreground">Sin presupuesto configurado</p>
-            </div>
-          </div>
-          <Link href="/planning" className="inline-flex h-10 items-center justify-center rounded-full border border-border bg-card px-4 text-sm font-medium text-card-foreground transition duration-200 hover:bg-muted focus:outline-none focus:ring-2 focus:ring-accent/30">
-            Volver a Planificación
-          </Link>
-        </div>
-        <div className="mt-5 rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-          La interfaz del dashboard ya apunta aquí. La configuración real del presupuesto se podrá añadir después sin cambiar la navegación.
-        </div>
-      </section>
+      <BudgetManager initialBudgets={rows} accounts={accounts} categories={categories} />
     </div>
   );
 }
