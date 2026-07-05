@@ -1,6 +1,6 @@
 "use client";
 
-import { HandCoins, Search, Target, Trash2, X } from "lucide-react";
+import { HandCoins, MoreHorizontal, Search, Target, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,6 +106,7 @@ export function TransactionsTable({
   const [planningAssociation, setPlanningAssociation] = useState<PlanningAssociationState | null>(null);
   const [reimbursement, setReimbursement] = useState<ReimbursementState | null>(null);
   const [counterpartSearch, setCounterpartSearch] = useState("");
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -353,8 +354,77 @@ export function TransactionsTable({
   async function remove(id: string) {
     const confirmed = window.confirm("¿Eliminar este movimiento? Esta acción no se puede deshacer.");
     if (!confirmed) return;
-    const response = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+    const response = await fetch("/api/transactions/" + id, { method: "DELETE" });
     if (response.ok) setTransactions((current) => current.filter((tx) => tx.id !== id));
+  }
+
+  function movementType(tx: TransactionRow) {
+    if (tx.isInternalTransfer) return { label: tx.amount >= 0 ? "Movimiento entre cuentas/efectivo" : "Transferencia interna", tone: "neutral" as const };
+    if (tx.reimbursementLinks.length > 0) return { label: "Reembolso", tone: "success" as const };
+    if (tx.type === "INCOME") return { label: "Ingreso", tone: "success" as const };
+    if (tx.type === "EXPENSE") return { label: "Gasto", tone: "danger" as const };
+    return { label: "Transferencia", tone: "neutral" as const };
+  }
+
+  function planningLabel(tx: TransactionRow) {
+    if (tx.type === "EXPENSE" && !tx.isInternalTransfer) return tx.isFixedExpense ? "Fijo" : "Variable";
+    if (tx.type === "TRANSFER" || tx.isInternalTransfer) return "Otro";
+    return "Sin clasificar";
+  }
+
+  function planningTone(tx: TransactionRow) {
+    if (tx.type === "EXPENSE" && !tx.isInternalTransfer) return tx.isFixedExpense ? "neutral" as const : "warning" as const;
+    return "neutral" as const;
+  }
+
+  function goalsLabel(tx: TransactionRow) {
+    if (tx.planningGoals.length === 0) return "Sin objetivo";
+    if (tx.planningGoals.length === 1) return tx.planningGoals[0].goal.name;
+    return String(tx.planningGoals.length) + " objetivos";
+  }
+
+  function goalsTitle(tx: TransactionRow) {
+    return tx.planningGoals.map((item) => item.goal.name).join(", ");
+  }
+
+  function closeActions() {
+    setOpenActionsId(null);
+  }
+
+  function ActionMenu({ tx, align = "right" }: { tx: TransactionRow; align?: "left" | "right" }) {
+    const open = openActionsId === tx.id;
+    return (
+      <div className="relative inline-flex justify-end">
+        <Button type="button" variant="secondary" size="sm" onClick={() => setOpenActionsId(open ? null : tx.id)} aria-expanded={open} aria-haspopup="menu" className="h-8 px-2 sm:px-3">
+          <MoreHorizontal className="h-4 w-4" />
+          <span className="hidden sm:inline">Acciones</span>
+        </Button>
+        {open ? (
+          <div className={(align === "right" ? "right-0" : "left-0") + " absolute top-10 z-20 w-64 rounded-lg border border-border bg-card p-1.5 text-left shadow-xl"} role="menu">
+            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); openPlanningAssociation(tx); }} disabled={savingId === tx.id}>
+              <Target className="h-4 w-4 text-muted-foreground" /> Asociar a objetivo
+            </button>
+            {tx.isInternalTransfer ? (
+              <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); void clearInternalTransfer(tx); }} disabled={savingId === tx.id}>
+                Quitar transferencia interna
+              </button>
+            ) : (
+              <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" onClick={() => { closeActions(); openInternalTransfer(tx); }} disabled={savingId === tx.id || accounts.length < 2}>
+                {tx.type === "INCOME" ? "Movimiento entre cuentas/efectivo" : "Marcar como transferencia interna"}
+              </button>
+            )}
+            {tx.type === "INCOME" && tx.amount > 0 && !tx.isInternalTransfer ? (
+              <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); openReimbursement(tx); }} disabled={savingId === tx.id}>
+                <HandCoins className="h-4 w-4 text-muted-foreground" /> {tx.reimbursementLinks.length > 0 ? "Editar reembolso" : "Marcar como reembolso"}
+              </button>
+            ) : null}
+            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-danger hover:bg-danger/10" onClick={() => { closeActions(); void remove(tx.id); }}>
+              <Trash2 className="h-4 w-4" /> Eliminar movimiento
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -398,8 +468,8 @@ export function TransactionsTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1320px] border-collapse text-sm">
+      <div className="hidden overflow-x-auto lg:block">
+        <table className="w-full min-w-[1360px] border-collapse text-sm">
           <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-4 py-3 font-medium">Fecha</th>
@@ -409,82 +479,118 @@ export function TransactionsTable({
               <th className="px-4 py-3 text-right font-medium">Importe</th>
               <th className="px-4 py-3 text-right font-medium">Saldo</th>
               <th className="px-4 py-3 font-medium">Tipo</th>
+              <th className="px-4 py-3 font-medium">Planificación</th>
               <th className="px-4 py-3 font-medium">Objetivos</th>
-              <th className="px-4 py-3 font-medium">Origen</th>
-              <th className="px-4 py-3 text-right font-medium">Acción</th>
+              <th className="px-4 py-3 text-right font-medium">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((tx) => (
-              <tr key={tx.id} className="border-t border-border">
-                <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(tx.date)}</td>
-                <td className="max-w-xs px-4 py-3">
-                  <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-9" />
-                  <p className="mt-1 truncate text-xs text-muted-foreground">Original: {tx.concept}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-40">
-                    {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
-                  </Select>
-                </td>
-                <td className="px-4 py-3">
-                  <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
-                    <option value="">Sin categoría</option>
-                    {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                    <option value="__new">+ Nueva categoría</option>
-                  </Select>
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right font-medium"><span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span></td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
-                <td className="px-4 py-3">
-                  <div className="flex min-w-52 flex-col items-start gap-2">
-                    <Badge tone={tx.isInternalTransfer ? "neutral" : tx.reimbursementLinks.length > 0 ? "success" : tx.type === "INCOME" ? "success" : tx.type === "EXPENSE" ? "danger" : "neutral"}>
-                      {tx.isInternalTransfer ? "Transferencia interna" : tx.reimbursementLinks.length > 0 ? "Reembolso" : tx.type === "INCOME" ? "Ingreso" : tx.type === "EXPENSE" ? "Gasto" : "Transferencia"}
-                    </Badge>
-                    {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={tx.isFixedExpense ? "neutral" : "warning"}>{tx.isFixedExpense ? "Gasto fijo" : "Gasto variable"}</Badge>
-                        <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 min-w-36">
+            {filtered.map((tx) => {
+              const typeBadge = movementType(tx);
+              const sourceText = tx.importHistory ? "Importado desde " + tx.importHistory.fileName : "Manual";
+              return (
+                <tr key={tx.id} className="border-t border-border align-middle transition hover:bg-muted/30">
+                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(tx.date)}</td>
+                  <td className="min-w-[280px] max-w-md px-4 py-3">
+                    <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-9" />
+                    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      <p className="truncate">Original: {tx.concept}</p>
+                      <p className="truncate">{sourceText}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-40">
+                      {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                    </Select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
+                      <option value="">Sin categoría</option>
+                      {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                      <option value="__new">+ Nueva categoría</option>
+                    </Select>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums"><span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span></td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground tabular-nums">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
+                  <td className="whitespace-nowrap px-4 py-3"><Badge tone={typeBadge.tone}>{typeBadge.label}</Badge></td>
+                  <td className="px-4 py-3">
+                    <div className="flex min-w-40 flex-col items-start gap-2">
+                      <Badge tone={planningTone(tx)}>{planningLabel(tx)}</Badge>
+                      {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
+                        <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 min-w-32 text-xs">
                           <option value="variable">Variable</option>
                           <option value="fixed">Fijo</option>
                         </Select>
-                      </div>
-                    ) : null}
-                    {tx.isInternalTransfer ? (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => void clearInternalTransfer(tx)} disabled={savingId === tx.id}>Quitar interna</Button>
-                    ) : (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => openInternalTransfer(tx)} disabled={savingId === tx.id || accounts.length < 2}>{tx.type === "INCOME" ? "Movimiento entre cuentas/efectivo" : "Marcar como transferencia interna"}</Button>
-                    )}
-                    <Button type="button" variant="secondary" size="sm" onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id} className="font-medium">
-                      <Target className="h-4 w-4" /> Asociar a objetivo
-                    </Button>
-                    {tx.type === "INCOME" && tx.amount > 0 && !tx.isInternalTransfer ? (
-                      <Button type="button" variant="secondary" size="sm" onClick={() => openReimbursement(tx)} disabled={savingId === tx.id} className="font-medium">
-                        <HandCoins className="h-4 w-4" /> {tx.reimbursementLinks.length > 0 ? "Editar reembolso" : "Marcar como reembolso"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex min-w-48 flex-col items-start gap-2">
-                    <div className="flex flex-wrap gap-1">
-                      {tx.planningGoals.length > 0 ? tx.planningGoals.map((item) => (
-                        <span key={item.goalId} className="rounded-md border border-border px-2 py-1 text-xs text-card-foreground" style={{ borderColor: item.goal.color ?? undefined }}>{item.goal.name}</span>
-                      )) : <span className="text-xs text-muted-foreground">Sin objetivo</span>}
+                      ) : null}
                     </div>
-                    {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="text-xs text-warning">Asociada, no cuenta salvo confirmación.</p> : null}
-                  </div>
-                </td>
-                <td className="max-w-xs px-4 py-3 text-muted-foreground">{tx.importHistory ? `Importado desde ${tx.importHistory.fileName}` : "Manual"}</td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button type="button" variant="ghost" size="icon" onClick={() => void remove(tx.id)} title="Eliminar"><Trash2 className="h-4 w-4" /></Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button type="button" className="max-w-44 truncate rounded-md border border-border px-2 py-1 text-left text-xs text-card-foreground transition hover:bg-muted" title={goalsTitle(tx) || "Sin objetivo"} onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
+                      {goalsLabel(tx)}
+                    </button>
+                    {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="mt-1 text-xs text-warning">No cuenta salvo confirmación.</p> : null}
+                  </td>
+                  <td className="px-4 py-3 text-right"><ActionMenu tx={tx} /></td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+      </div>
+
+      <div className="space-y-3 p-4 lg:hidden">
+        {filtered.map((tx) => {
+          const typeBadge = movementType(tx);
+          const sourceText = tx.importHistory ? "Importado desde " + tx.importHistory.fileName : "Manual";
+          return (
+            <article key={tx.id} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">{formatDate(tx.date)} - {tx.account?.name ?? "Cuenta"}</p>
+                  <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="mt-2 h-9" />
+                  <p className="mt-1 truncate text-xs text-muted-foreground">Original: {tx.concept}</p>
+                </div>
+                <div className="text-right">
+                  <p className={(tx.amount >= 0 ? "text-success" : "text-danger") + " whitespace-nowrap font-semibold tabular-nums"}>{formatCurrency(tx.amount)}</p>
+                  <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">Saldo: {tx.balance === null ? "-" : formatCurrency(tx.balance)}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9">
+                  {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </Select>
+                <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9">
+                  <option value="">Sin categoría</option>
+                  {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                  <option value="__new">+ Nueva categoría</option>
+                </Select>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Badge tone={typeBadge.tone}>{typeBadge.label}</Badge>
+                <Badge tone={planningTone(tx)}>{planningLabel(tx)}</Badge>
+                <button type="button" className="max-w-full truncate rounded-md border border-border px-2 py-1 text-left text-xs text-card-foreground" title={goalsTitle(tx) || "Sin objetivo"} onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
+                  {goalsLabel(tx)}
+                </button>
+              </div>
+
+              {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
+                <div className="mt-3">
+                  <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9">
+                    <option value="variable">Gasto variable</option>
+                    <option value="fixed">Gasto fijo</option>
+                  </Select>
+                </div>
+              ) : null}
+
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+                <p className="min-w-0 truncate text-xs text-muted-foreground">{sourceText}</p>
+                <ActionMenu tx={tx} />
+              </div>
+            </article>
+          );
+        })}
       </div>
 
       {quickCategory ? (
