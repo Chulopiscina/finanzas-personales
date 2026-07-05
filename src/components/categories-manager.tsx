@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Archive, Pencil, Plus, Save, X } from "lucide-react";
 import { useState } from "react";
@@ -54,7 +54,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
       setMessage(payload.error ?? "No se pudo crear la categoría.");
       return;
     }
-    setCategories((current) => [...current, { ...payload.category, _count: { transactions: 0 } }]);
+    setCategories((current) => current.some((item) => item.id === payload.category.id) ? current : [...current, { ...payload.category, _count: { transactions: 0 } }]);
     setForm(emptyForm);
   }
 

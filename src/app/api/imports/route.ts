@@ -5,6 +5,7 @@ import { jsonError } from "@/lib/api";
 import { parseBankCsv } from "@/lib/csv";
 import { requireUser } from "@/lib/auth";
 import { ensureDefaultAccount, recalculateMonthlySummaries } from "@/lib/finance";
+import { ensurePayrollCategory, isPayrollCategoryName, PAYROLL_CATEGORY_NAME } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -49,16 +50,25 @@ async function resolveImportAccount(userId: string, requestedAccountId: FormData
   throw new Error("Selecciona la cuenta a la que pertenece este extracto.");
 }
 
+function canonicalCategoryName(name: string) {
+  return isPayrollCategoryName(name) ? PAYROLL_CATEGORY_NAME : name;
+}
+
 async function getOrCreateCategory(name: string) {
-  const existing = await prisma.category.findFirst({ where: { userId: null, name } });
+  const canonicalName = canonicalCategoryName(name);
+  if (canonicalName === PAYROLL_CATEGORY_NAME) {
+    return ensurePayrollCategory();
+  }
+
+  const existing = await prisma.category.findFirst({ where: { userId: null, name: canonicalName } });
   if (existing) {
     return existing;
   }
 
-  const style = categoryStyle[name] ?? categoryStyle.Otros;
+  const style = categoryStyle[canonicalName] ?? categoryStyle.Otros;
   return prisma.category.create({
     data: {
-      name,
+      name: canonicalName,
       color: style.color,
       icon: style.icon,
       type: style.type
@@ -101,7 +111,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "El archivo no contiene movimientos." }, { status: 400 });
     }
 
-    const categoryNames = [...new Set(movements.map((movement) => movement.categoryName))];
+    const categoryNames = [...new Set(movements.map((movement) => canonicalCategoryName(movement.categoryName)))];
     const categories = await Promise.all(categoryNames.map((name) => getOrCreateCategory(name)));
     const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
     const incomeTotal = movements
@@ -133,7 +143,7 @@ export async function POST(request: NextRequest) {
       data: movements.map((movement) => ({
         userId: session.user.id,
         accountId: account.id,
-        categoryId: categoryByName.get(movement.categoryName),
+        categoryId: categoryByName.get(canonicalCategoryName(movement.categoryName)),
         importHistoryId: history.id,
         date: movement.date,
         concept: movement.concept,

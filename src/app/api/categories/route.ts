@@ -2,6 +2,7 @@ import { CategoryType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { ensurePayrollCategory, isPayrollCategoryName } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
 type CategoryBody = {
@@ -32,6 +33,11 @@ export async function POST(request: Request) {
     const name = body.name?.trim();
     if (!name) {
       return NextResponse.json({ error: "El nombre de la categoría es obligatorio." }, { status: 400 });
+    }
+
+    if (isPayrollCategoryName(name)) {
+      const category = await ensurePayrollCategory();
+      return NextResponse.json({ category });
     }
 
     const category = await prisma.category.create({

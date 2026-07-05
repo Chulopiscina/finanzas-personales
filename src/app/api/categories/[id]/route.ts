@@ -2,6 +2,7 @@ import { CategoryType } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { isPayrollCategoryName } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
 type CategoryBody = {
@@ -30,6 +31,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const body = await readJson<CategoryBody>(request);
+    if (body.name && isPayrollCategoryName(body.name)) {
+      return NextResponse.json({ error: "La categoría Nómina ya existe como categoría base. Usa esa categoría para evitar duplicados." }, { status: 400 });
+    }
+
     const updated = await prisma.category.update({
       where: { id },
       data: {

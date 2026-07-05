@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { Role, TransactionType } from "@prisma/client";
+import { CategoryType, Role, TransactionType } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { recalculateMonthlySummaries, toNumber } from "@/lib/finance";
+import { isPayrollCategory } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
 type TransactionBody = {
@@ -142,10 +143,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const body = await readJson<TransactionBody>(request);
     let explicitCounterpartId: string | null = null;
-    const intendedType = body.isInternalTransfer === true ? TransactionType.TRANSFER : body.type ?? authorized.transaction.type;
-    const fixedExpenseValue = intendedType === TransactionType.EXPENSE
-      ? (typeof body.isFixedExpense === "boolean" ? body.isFixedExpense : undefined)
-      : (body.type !== undefined || body.isInternalTransfer === true ? false : undefined);
+    let selectedCategory: { name: string; type: CategoryType } | null = null;
     if (body.accountId) {
       const account = await prisma.account.findUnique({ where: { id: body.accountId } });
       if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
@@ -182,7 +180,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!category || category.isArchived) {
         return NextResponse.json({ error: "La categoria seleccionada no es valida." }, { status: 400 });
       }
+      selectedCategory = category;
     }
+
+    const nextType = body.isInternalTransfer === true
+      ? TransactionType.TRANSFER
+      : selectedCategory && isPayrollCategory(selectedCategory)
+        ? TransactionType.INCOME
+        : body.type;
+    const intendedType = nextType ?? authorized.transaction.type;
+    const fixedExpenseValue = intendedType === TransactionType.EXPENSE
+      ? (typeof body.isFixedExpense === "boolean" ? body.isFixedExpense : undefined)
+      : (body.type !== undefined || body.isInternalTransfer === true || selectedCategory ? false : undefined);
 
     const updated = await prisma.transaction.update({
       where: { id },
@@ -193,7 +202,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         accountId: body.accountId || undefined,
         date: body.date ? new Date(body.date) : undefined,
         amount: typeof body.amount === "number" ? body.amount : undefined,
-        type: body.isInternalTransfer === true ? TransactionType.TRANSFER : body.type,
+        type: nextType,
         isInternalTransfer: typeof body.isInternalTransfer === "boolean" ? body.isInternalTransfer : undefined,
         isFixedExpense: fixedExpenseValue,
         internalTransferCounterAccountId: body.isInternalTransfer === false ? null : body.internalTransferCounterAccountId === null ? null : body.internalTransferCounterAccountId || undefined,

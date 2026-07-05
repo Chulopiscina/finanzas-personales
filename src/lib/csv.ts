@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { TransactionType } from "@prisma/client";
 import Papa from "papaparse";
+import { isPayrollText, payrollClassification } from "@/lib/payroll";
 
 export type ParsedMovement = {
   date: Date;
@@ -31,7 +32,7 @@ const CATEGORY_NAMES = {
 };
 
 const categoryRules: Array<[string, RegExp]> = [
-  [CATEGORY_NAMES.payroll, /\b(nomina|n[o\u00f3]mina|salario|payroll|haberes)\b/i],
+  [CATEGORY_NAMES.payroll, /\b(nomina|n[o\u00f3]mina|nomines|n[o\u00f3]mines|salario|payroll|haberes)\b/i],
   [CATEGORY_NAMES.restaurants, /\b(restaurante|restaurantes y cafeterias|restaurantes y cafeter[i\u00ed]as|rest\b|bar |caf[e\u00e9]|cafe|cafeter[i\u00ed]a|forn|gelat|farggi|bocata|segonbocata|elsegonbocata|la lira|burger|pizza|glovo|uber eats|deliveroo|just eat)\b/i],
   [CATEGORY_NAMES.supermarket, /\b(mercadona|carrefour|lidl|aldi|bonpreu|caprabo|supermercado|supermercados|superme|consum|alcampo|dia market|dia \d+)\b/i],
   [CATEGORY_NAMES.transport, /\b(tmb|renfe|metro|bus|taxi|uber|cabify|transport|transporte|parking|peaje)\b/i],
@@ -130,8 +131,8 @@ export function classify(concept: string, amount: number) {
   const transferRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.transfers);
   const payrollRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.payroll);
 
-  if (payrollRule?.[1].test(concept)) {
-    return { categoryName: CATEGORY_NAMES.payroll, type: TransactionType.INCOME };
+  if (isPayrollText(concept) || payrollRule?.[1].test(concept)) {
+    return payrollClassification();
   }
 
   if (transferRule?.[1].test(concept)) {

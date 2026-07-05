@@ -195,7 +195,7 @@ export function TransactionsTable({
     }
 
     const newCategory = payload.category as Category;
-    setCategories((current) => [...current, newCategory]);
+    setCategories((current) => current.some((item) => item.id === newCategory.id) ? current : [...current, newCategory]);
     setQuickCategory(null);
     await applyCategory(quickCategory.transactionId, newCategory.id, newCategory);
   }
