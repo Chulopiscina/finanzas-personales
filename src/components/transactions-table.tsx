@@ -106,7 +106,7 @@ export function TransactionsTable({
   const [planningAssociation, setPlanningAssociation] = useState<PlanningAssociationState | null>(null);
   const [reimbursement, setReimbursement] = useState<ReimbursementState | null>(null);
   const [counterpartSearch, setCounterpartSearch] = useState("");
-  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [openActions, setOpenActions] = useState<{ transactionId: string; left: number; top: number } | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -327,6 +327,22 @@ export function TransactionsTable({
     setReimbursement(null);
   }
 
+  async function clearReimbursement(tx: TransactionRow) {
+    setSavingId(tx.id);
+    const response = await fetch(`/api/transactions/${tx.id}/reimbursements`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expenseIds: [] })
+    });
+    const payload = await response.json().catch(() => ({}));
+    setSavingId(null);
+    if (!response.ok || !payload.reimbursements) {
+      window.alert(payload.error ?? "No se pudo quitar el reembolso.");
+      return;
+    }
+    setTransactions((current) => current.map((item) => (item.id === tx.id ? { ...item, reimbursementLinks: payload.reimbursements as ReimbursementAssociation[] } : item)));
+  }
+
   const internalTransferSource = internalTransfer ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null : null;
   const planningSource = planningAssociation ? transactions.find((tx) => tx.id === planningAssociation.transactionId) ?? null : null;
   const reimbursementSource = reimbursement ? transactions.find((tx) => tx.id === reimbursement.transactionId) ?? null : null;
@@ -368,7 +384,7 @@ export function TransactionsTable({
 
   function planningLabel(tx: TransactionRow) {
     if (tx.type === "EXPENSE" && !tx.isInternalTransfer) return tx.isFixedExpense ? "Fijo" : "Variable";
-    if (tx.type === "TRANSFER" || tx.isInternalTransfer) return "Otro";
+    if (tx.category?.type === "SAVINGS") return "Ahorro";
     return "Sin clasificar";
   }
 
@@ -388,41 +404,59 @@ export function TransactionsTable({
   }
 
   function closeActions() {
-    setOpenActionsId(null);
+    setOpenActions(null);
   }
 
-  function ActionMenu({ tx, align = "right" }: { tx: TransactionRow; align?: "left" | "right" }) {
-    const open = openActionsId === tx.id;
+  function openActionMenu(tx: TransactionRow, element: HTMLButtonElement) {
+    const rect = element.getBoundingClientRect();
+    const width = 256;
+    const margin = 12;
+    const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
+    setOpenActions({ transactionId: tx.id, left, top: rect.bottom + 6 });
+  }
+
+  function ActionMenu({ tx }: { tx: TransactionRow }) {
+    const open = openActions?.transactionId === tx.id;
     return (
-      <div className="relative inline-flex justify-end">
-        <Button type="button" variant="secondary" size="sm" onClick={() => setOpenActionsId(open ? null : tx.id)} aria-expanded={open} aria-haspopup="menu" className="h-8 px-2 sm:px-3">
-          <MoreHorizontal className="h-4 w-4" />
-          <span className="hidden sm:inline">Acciones</span>
-        </Button>
-        {open ? (
-          <div className={(align === "right" ? "right-0" : "left-0") + " absolute top-10 z-20 w-64 rounded-lg border border-border bg-card p-1.5 text-left shadow-xl"} role="menu">
-            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); openPlanningAssociation(tx); }} disabled={savingId === tx.id}>
-              <Target className="h-4 w-4 text-muted-foreground" /> Asociar a objetivo
+      <Button type="button" variant="secondary" size="sm" onClick={(event) => (open ? closeActions() : openActionMenu(tx, event.currentTarget))} aria-expanded={open} aria-haspopup="menu" className="h-8 px-2 sm:px-3">
+        <MoreHorizontal className="h-4 w-4" />
+        <span className="hidden sm:inline">Acciones</span>
+      </Button>
+    );
+  }
+
+  function ActionsDropdown({ tx }: { tx: TransactionRow }) {
+    return (
+      <div className="fixed inset-0 z-40" onClick={closeActions}>
+        <div className="absolute w-64 rounded-lg border border-border bg-card p-1.5 text-left shadow-xl" style={{ left: openActions?.left ?? 0, top: openActions?.top ?? 0 }} role="menu" onClick={(event) => event.stopPropagation()}>
+          <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); openPlanningAssociation(tx); }} disabled={savingId === tx.id}>
+            <Target className="h-4 w-4 text-muted-foreground" /> Asociar a objetivo
+          </button>
+          {tx.isInternalTransfer ? (
+            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); void clearInternalTransfer(tx); }} disabled={savingId === tx.id}>
+              Quitar transferencia interna
             </button>
-            {tx.isInternalTransfer ? (
-              <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); void clearInternalTransfer(tx); }} disabled={savingId === tx.id}>
-                Quitar transferencia interna
-              </button>
-            ) : (
-              <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" onClick={() => { closeActions(); openInternalTransfer(tx); }} disabled={savingId === tx.id || accounts.length < 2}>
-                {tx.type === "INCOME" ? "Movimiento entre cuentas/efectivo" : "Marcar como transferencia interna"}
-              </button>
-            )}
-            {tx.type === "INCOME" && tx.amount > 0 && !tx.isInternalTransfer ? (
+          ) : (
+            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50" onClick={() => { closeActions(); openInternalTransfer(tx); }} disabled={savingId === tx.id || accounts.length < 2}>
+              {tx.type === "INCOME" ? "Movimiento entre cuentas/efectivo" : "Marcar como transferencia interna"}
+            </button>
+          )}
+          {tx.type === "INCOME" && tx.amount > 0 && !tx.isInternalTransfer ? (
+            <>
               <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); openReimbursement(tx); }} disabled={savingId === tx.id}>
                 <HandCoins className="h-4 w-4 text-muted-foreground" /> {tx.reimbursementLinks.length > 0 ? "Editar reembolso" : "Marcar como reembolso"}
               </button>
-            ) : null}
-            <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-danger hover:bg-danger/10" onClick={() => { closeActions(); void remove(tx.id); }}>
-              <Trash2 className="h-4 w-4" /> Eliminar movimiento
-            </button>
-          </div>
-        ) : null}
+              {tx.reimbursementLinks.length > 0 ? (
+                <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-card-foreground hover:bg-muted" onClick={() => { closeActions(); void clearReimbursement(tx); }} disabled={savingId === tx.id}>
+                  Quitar reembolso
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          <button type="button" className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-danger hover:bg-danger/10" onClick={() => { closeActions(); void remove(tx.id); }}>
+            <Trash2 className="h-4 w-4" /> Eliminar movimiento
+          </button>
+        </div>
       </div>
     );
   }
@@ -480,7 +514,7 @@ export function TransactionsTable({
               <th className="px-4 py-3 text-right font-medium">Saldo</th>
               <th className="px-4 py-3 font-medium">Tipo</th>
               <th className="px-4 py-3 font-medium">Planificación</th>
-              <th className="px-4 py-3 font-medium">Objetivos</th>
+              <th className="px-4 py-3 font-medium">Objetivo</th>
               <th className="px-4 py-3 text-right font-medium">Acciones</th>
             </tr>
           </thead>
@@ -592,6 +626,11 @@ export function TransactionsTable({
           );
         })}
       </div>
+
+      {openActions ? (() => {
+        const openActionTransaction = transactions.find((tx) => tx.id === openActions.transactionId);
+        return openActionTransaction ? <ActionsDropdown tx={openActionTransaction} /> : null;
+      })() : null}
 
       {quickCategory ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="quick-category-title">
