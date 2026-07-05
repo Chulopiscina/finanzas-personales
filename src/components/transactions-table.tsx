@@ -418,9 +418,8 @@ export function TransactionsTable({
   function ActionMenu({ tx }: { tx: TransactionRow }) {
     const open = openActions?.transactionId === tx.id;
     return (
-      <Button type="button" variant="secondary" size="sm" onClick={(event) => (open ? closeActions() : openActionMenu(tx, event.currentTarget))} aria-expanded={open} aria-haspopup="menu" className="h-8 px-2 sm:px-3">
+      <Button type="button" variant="secondary" size="sm" onClick={(event) => (open ? closeActions() : openActionMenu(tx, event.currentTarget))} aria-expanded={open} aria-haspopup="menu" title="Acciones" className="h-8 w-8 px-0">
         <MoreHorizontal className="h-4 w-4" />
-        <span className="hidden sm:inline">Acciones</span>
       </Button>
     );
   }
@@ -503,68 +502,77 @@ export function TransactionsTable({
       </div>
 
       <div className="hidden overflow-x-auto lg:block">
-        <table className="w-full min-w-[1360px] border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-xs">
+          <colgroup>
+            <col className="w-[76px]" />
+            <col />
+            <col className="w-[112px]" />
+            <col className="w-[126px]" />
+            <col className="w-[94px]" />
+            <col className="w-[94px]" />
+            <col className="w-[118px]" />
+            <col className="w-[96px]" />
+            <col className="w-[108px]" />
+            <col className="w-[54px]" />
+          </colgroup>
           <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
             <tr>
-              <th className="px-4 py-3 font-medium">Fecha</th>
-              <th className="px-4 py-3 font-medium">Concepto</th>
-              <th className="px-4 py-3 font-medium">Cuenta</th>
-              <th className="px-4 py-3 font-medium">Categoría</th>
-              <th className="px-4 py-3 text-right font-medium">Importe</th>
-              <th className="px-4 py-3 text-right font-medium">Saldo</th>
-              <th className="px-4 py-3 font-medium">Tipo</th>
-              <th className="px-4 py-3 font-medium">Planificación</th>
-              <th className="px-4 py-3 font-medium">Objetivo</th>
-              <th className="px-4 py-3 text-right font-medium">Acciones</th>
+              <th className="px-2 py-2 font-medium">Fecha</th>
+              <th className="px-2 py-2 font-medium">Concepto</th>
+              <th className="px-2 py-2 font-medium">Cuenta</th>
+              <th className="px-2 py-2 font-medium">Categor&iacute;a</th>
+              <th className="px-2 py-2 text-right font-medium">Importe</th>
+              <th className="px-2 py-2 text-right font-medium">Saldo</th>
+              <th className="px-2 py-2 font-medium">Tipo</th>
+              <th className="px-2 py-2 font-medium">Planificaci&oacute;n</th>
+              <th className="px-2 py-2 font-medium">Objetivo</th>
+              <th className="sticky right-0 z-10 bg-muted px-2 py-2 text-right font-medium shadow-[-10px_0_18px_-18px_rgba(15,23,42,0.7)]">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((tx) => {
               const typeBadge = movementType(tx);
               const sourceText = tx.importHistory ? "Importado desde " + tx.importHistory.fileName : "Manual";
+              const conceptText = tx.cleanDescription ?? tx.concept;
               return (
                 <tr key={tx.id} className="border-t border-border align-middle transition hover:bg-muted/30">
-                  <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDate(tx.date)}</td>
-                  <td className="min-w-[280px] max-w-md px-4 py-3">
-                    <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-9" />
-                    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                      <p className="truncate">Original: {tx.concept}</p>
-                      <p className="truncate">{sourceText}</p>
-                    </div>
+                  <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">{formatDate(tx.date)}</td>
+                  <td className="min-w-0 px-2 py-2">
+                    <Input defaultValue={conceptText} title={conceptText + " - " + sourceText} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-8 w-full truncate text-xs" />
                   </td>
-                  <td className="px-4 py-3">
-                    <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-40">
+                  <td className="px-2 py-2">
+                    <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 w-full text-xs">
                       {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                     </Select>
                   </td>
-                  <td className="px-4 py-3">
-                    <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9 min-w-44">
-                      <option value="">Sin categoría</option>
+                  <td className="px-2 py-2">
+                    <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 w-full text-xs">
+                      <option value="">Sin categor&iacute;a</option>
                       {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-                      <option value="__new">+ Nueva categoría</option>
+                      <option value="__new">+ Nueva categor&iacute;a</option>
                     </Select>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums"><span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span></td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right text-muted-foreground tabular-nums">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
-                  <td className="whitespace-nowrap px-4 py-3"><Badge tone={typeBadge.tone}>{typeBadge.label}</Badge></td>
-                  <td className="px-4 py-3">
-                    <div className="flex min-w-40 flex-col items-start gap-2">
+                  <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums"><span className={tx.amount >= 0 ? "text-success" : "text-danger"}>{formatCurrency(tx.amount)}</span></td>
+                  <td className="whitespace-nowrap px-2 py-2 text-right text-muted-foreground tabular-nums">{tx.balance === null ? "-" : formatCurrency(tx.balance)}</td>
+                  <td className="px-2 py-2"><div className="truncate" title={typeBadge.label}><Badge tone={typeBadge.tone}>{typeBadge.label}</Badge></div></td>
+                  <td className="px-2 py-2">
+                    <div className="flex min-w-0 flex-col items-start gap-1">
                       <Badge tone={planningTone(tx)}>{planningLabel(tx)}</Badge>
                       {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
-                        <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 min-w-32 text-xs">
+                        <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-7 w-full text-xs">
                           <option value="variable">Variable</option>
                           <option value="fixed">Fijo</option>
                         </Select>
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <button type="button" className="max-w-44 truncate rounded-md border border-border px-2 py-1 text-left text-xs text-card-foreground transition hover:bg-muted" title={goalsTitle(tx) || "Sin objetivo"} onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
+                  <td className="px-2 py-2">
+                    <button type="button" className="max-w-full truncate rounded-md border border-border px-1.5 py-1 text-left text-xs text-card-foreground transition hover:bg-muted" title={goalsTitle(tx) || "Sin objetivo"} onClick={() => openPlanningAssociation(tx)} disabled={savingId === tx.id}>
                       {goalsLabel(tx)}
                     </button>
-                    {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="mt-1 text-xs text-warning">No cuenta salvo confirmación.</p> : null}
+                    {tx.isInternalTransfer && tx.planningGoals.some((item) => !item.includeInternalTransfer) ? <p className="mt-1 text-xs text-warning">No cuenta salvo confirmaci&oacute;n.</p> : null}
                   </td>
-                  <td className="px-4 py-3 text-right"><ActionMenu tx={tx} /></td>
+                  <td className="sticky right-0 z-10 bg-card/95 px-2 py-2 text-right shadow-[-10px_0_18px_-18px_rgba(15,23,42,0.7)] backdrop-blur"><ActionMenu tx={tx} /></td>
                 </tr>
               );
             })}
