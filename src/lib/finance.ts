@@ -17,7 +17,10 @@ type TransactionWithCategory = Transaction & {
   reimbursedByLinks?: ReimbursementLink[];
 };
 
-export type DashboardPeriod = "last-imported-month" | "last-3-months" | "current-year" | "all";
+export type DashboardPeriodMode = "calendar" | "payroll";
+export type CalendarDashboardPeriod = "last-imported-month" | "last-3-months" | "current-year" | "all";
+export type PayrollDashboardPeriod = "payroll-current" | "payroll-last-closed" | "payroll-last-3" | "payroll-all";
+export type DashboardPeriod = CalendarDashboardPeriod | PayrollDashboardPeriod;
 export type DashboardDetailKey = "realIncome" | "grossExpenses" | "reimbursements" | "netExpenses" | "periodResult" | "internalTransfers" | "topCategory" | "uncategorized" | "averageMonthlyNetExpense";
 export type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 
@@ -68,7 +71,47 @@ function realIncome(tx: TransactionWithCategory) {
   return signedIncome(tx) > 0 && !isReimbursement(tx) ? Math.abs(toNumber(tx.amount)) : 0;
 }
 
-function periodRange(period: DashboardPeriod, transactions: TransactionWithCategory[]) {
+type DashboardRange = { start: Date | null; end: Date | null; label: string };
+
+function startOfDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function addDays(date: Date, days: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days));
+}
+
+function longMonthLabel(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("es-ES", { month: "long", year: "numeric" }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function shortDateLabel(date: Date) {
+  return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function normalizeText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function isPayrollTransaction(tx: TransactionWithCategory) {
+  if (tx.type !== TransactionType.INCOME || tx.isInternalTransfer || isReimbursement(tx)) return false;
+  const category = normalizeText(tx.category?.name ?? "");
+  const text = normalizeText([tx.concept, tx.cleanDescription, tx.rawDescription, tx.category?.name].filter(Boolean).join(" "));
+  const looksLikePayroll = category === "nomina" || /\b(abono de nomina|nomina|nomines)\b/.test(text);
+  const excluded = /\b(bizum|reembolso|efectivo|cash|transferencia interna|traspaso)\b/.test(text);
+  return looksLikePayroll && !excluded;
+}
+
+function payrollCycles(transactions: TransactionWithCategory[]) {
+  const starts = [...new Set(transactions.filter(isPayrollTransaction).map((tx) => startOfDay(tx.date).getTime()))]
+    .sort((left, right) => left - right)
+    .map((time) => new Date(time));
+
+  return starts.map((start, index) => ({ start, end: starts[index + 1] ?? null }));
+}
+
+function calendarPeriodRange(period: DashboardPeriod, transactions: TransactionWithCategory[]): DashboardRange {
   if (period === "all") {
     return { start: null, end: null, label: "Todo" };
   }
@@ -76,18 +119,46 @@ function periodRange(period: DashboardPeriod, transactions: TransactionWithCateg
   const latest = transactions[0]?.date ?? new Date();
   if (period === "current-year") {
     const year = new Date().getUTCFullYear();
-    return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year + 1, 0, 1)), label: String(year) };
+    return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year + 1, 0, 1)), label: "Mes natural: " + year };
   }
 
   const latestMonth = startOfMonth(latest);
   if (period === "last-3-months") {
-    return { start: addMonths(latestMonth, -2), end: addMonths(latestMonth, 1), label: "Últimos 3 meses" };
+    return { start: addMonths(latestMonth, -2), end: addMonths(latestMonth, 1), label: "Mes natural: últimos 3 meses" };
   }
 
-  return { start: latestMonth, end: addMonths(latestMonth, 1), label: "Último mes importado" };
+  return { start: latestMonth, end: addMonths(latestMonth, 1), label: "Mes natural: " + longMonthLabel(monthKey(latestMonth)) };
 }
 
-function inPeriod(tx: TransactionWithCategory, range: ReturnType<typeof periodRange>) {
+function payrollPeriodRange(period: DashboardPeriod, transactions: TransactionWithCategory[]): DashboardRange {
+  const cycles = payrollCycles(transactions);
+  if (cycles.length === 0) return { start: null, end: null, label: "Ciclo de nómina: sin nóminas detectadas" };
+
+  const current = cycles.at(-1)!;
+  if (period === "payroll-all") {
+    return { start: cycles[0].start, end: null, label: "Todos los ciclos de nómina" };
+  }
+
+  if (period === "payroll-last-3") {
+    const first = cycles[Math.max(0, cycles.length - 3)];
+    return { start: first.start, end: null, label: "últimos 3 ciclos de nómina" };
+  }
+
+  if (period === "payroll-last-closed") {
+    const closed = [...cycles].reverse().find((cycle) => cycle.end !== null);
+    if (closed?.end) {
+      return { start: closed.start, end: closed.end, label: "Ciclo de nómina: " + shortDateLabel(closed.start) + " - " + shortDateLabel(addDays(closed.end, -1)) };
+    }
+  }
+
+  return { start: current.start, end: null, label: "Ciclo actual: " + shortDateLabel(current.start) + " - hoy" };
+}
+
+function periodRange(period: DashboardPeriod, transactions: TransactionWithCategory[], mode: DashboardPeriodMode = "calendar"): DashboardRange {
+  return mode === "payroll" ? payrollPeriodRange(period, transactions) : calendarPeriodRange(period, transactions);
+}
+
+function inPeriod(tx: TransactionWithCategory, range: DashboardRange) {
   return (!range.start || tx.date >= range.start) && (!range.end || tx.date < range.end);
 }
 
@@ -300,7 +371,7 @@ function detailRow(tx: TransactionWithCategory) {
   };
 }
 
-export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month") {
+export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month", periodMode: DashboardPeriodMode = "calendar") {
   await ensureDefaultAccount(userId);
   await detectAndMarkInternalTransfers(userId);
 
@@ -329,7 +400,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
     })
   ]);
 
-  const range = periodRange(period, allTransactions);
+  const range = periodRange(period, allTransactions, periodMode);
   const transactions = allTransactions.filter((tx) => inPeriod(tx, range));
   const allocations = reimbursementAllocation(transactions);
   const incomeTransactions = transactions.filter((tx) => realIncome(tx) > 0);
@@ -386,6 +457,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
 
   return {
     period,
+    periodMode,
     periodLabel: range.label,
     accounts: accounts.map((account) => ({ id: account.id, name: account.name, isArchived: account.isArchived, color: account.color, type: account.type })),
     selectedAccount: selectedAccount ? { id: selectedAccount.id, name: selectedAccount.name, color: selectedAccount.color, type: selectedAccount.type } : null,

@@ -5,18 +5,24 @@ import { DashboardMetrics } from "@/components/dashboard-metrics";
 import { DashboardPeriodSelector } from "@/components/dashboard-period-selector";
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
-import { type DashboardPeriod, getDashboardData } from "@/lib/finance";
+import { type DashboardPeriod, type DashboardPeriodMode, getDashboardData } from "@/lib/finance";
 import { getPlanningGoalProgress } from "@/lib/planning";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
-  searchParams?: Promise<{ userId?: string; accountId?: string; period?: string }>;
+  searchParams?: Promise<{ userId?: string; accountId?: string; period?: string; periodMode?: string }>;
 };
 
-const validPeriods: DashboardPeriod[] = ["last-imported-month", "last-3-months", "current-year", "all"];
+const calendarPeriods: DashboardPeriod[] = ["last-imported-month", "last-3-months", "current-year", "all"];
+const payrollPeriods: DashboardPeriod[] = ["payroll-current", "payroll-last-closed", "payroll-last-3", "payroll-all"];
 
-function parsePeriod(value?: string): DashboardPeriod {
-  return validPeriods.includes(value as DashboardPeriod) ? (value as DashboardPeriod) : "last-imported-month";
+function parsePeriodMode(value?: string): DashboardPeriodMode {
+  return value === "payroll" ? "payroll" : "calendar";
+}
+
+function parsePeriod(value: string | undefined, mode: DashboardPeriodMode): DashboardPeriod {
+  const validPeriods = mode === "payroll" ? payrollPeriods : calendarPeriods;
+  return validPeriods.includes(value as DashboardPeriod) ? (value as DashboardPeriod) : validPeriods[0];
 }
 
 function firstName(name: string) {
@@ -28,10 +34,11 @@ export default async function DashboardPage({ searchParams }: Props) {
   if (!session) return null;
 
   const params = await searchParams;
-  const period = parsePeriod(params?.period);
+  const periodMode = parsePeriodMode(params?.periodMode);
+  const period = parsePeriod(params?.period, periodMode);
   const userId = getAuthorizedUserId(session.user, params?.userId);
   const [data, owner, planningGoals] = await Promise.all([
-    getDashboardData(userId, params?.accountId, period),
+    getDashboardData(userId, params?.accountId, period, periodMode),
     userId !== session.user.id && session.user.role === Role.ADMIN ? prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }) : null,
     getPlanningGoalProgress(userId, { dashboardOnly: true })
   ]);
@@ -52,7 +59,7 @@ export default async function DashboardPage({ searchParams }: Props) {
           <p className="text-sm text-muted-foreground">{scopeLabel} · {data.periodLabel}</p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center xl:justify-end">
-          <DashboardPeriodSelector period={period} />
+          <DashboardPeriodSelector period={period} periodMode={periodMode} />
           <DashboardAccountSelector accounts={data.accounts} selectedAccountId={data.selectedAccount?.id ?? null} />
         </div>
       </header>
