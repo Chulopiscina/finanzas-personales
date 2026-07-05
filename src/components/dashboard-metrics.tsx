@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Goal, Home, Landmark, PiggyBank, ReceiptText, ShoppingBag, WalletCards, X } from "lucide-react";
@@ -147,6 +147,42 @@ function BudgetDashboardCard({ budget }: { budget: DashboardData["budget"] }) {
   );
 }
 
+function SavingsGoalDashboardCard({ savingsGoal }: { savingsGoal: DashboardData["savingsGoal"] }) {
+  const colors = toneClasses.blue;
+  if (!savingsGoal.configured) {
+    return <PreparedFeatureCard title="Objetivo de ahorro" subtitle="No hay un objetivo de ahorro configurado" buttonLabel="Crear objetivo" href="/planning" icon="goal" tone="blue" />;
+  }
+
+  const statusText = savingsGoal.progressPercent >= 100 ? "Completado" : savingsGoal.progressPercent >= 60 ? "En camino" : "Pendiente";
+  const statusTone = savingsGoal.progressPercent >= 100 ? "text-success" : savingsGoal.progressPercent >= 60 ? "text-warning" : colors.text;
+
+  return (
+    <article className={cn("flex h-full min-h-[230px] flex-col rounded-2xl border bg-card p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] dark:shadow-none", colors.border)}>
+      <div className="flex items-start justify-between gap-4">
+        <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full", colors.icon)}>
+          <Goal className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <span className={cn("rounded-full px-2 py-1 text-xs font-medium", statusTone)}>{statusText}</span>
+      </div>
+      <div className="mt-6 grid flex-1 gap-5 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-muted-foreground">Objetivo de ahorro</p>
+          <p className="mt-2 text-2xl font-semibold tracking-normal text-card-foreground">{formatCurrency(savingsGoal.actualAmount)} / {formatCurrency(savingsGoal.targetAmount)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">Restante: {formatCurrency(savingsGoal.remaining)}</p>
+        </div>
+        <Link href="/planning" className={actionLinkClass}>Editar</Link>
+      </div>
+      <div className="mt-5 space-y-2">
+        <ProgressLine value={savingsGoal.progressPercent} tone="blue" />
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{savingsGoal.count} objetivos activos</span>
+          <span>{savingsGoal.progressPercent} %</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function PreparedFeatureCard({ title, subtitle, buttonLabel, href, icon, tone }: { title: string; subtitle: string; buttonLabel: string; href: string; icon: CardIcon; tone: CardTone }) {
   const Icon = icons[icon];
   const colors = toneClasses[tone];
@@ -263,8 +299,8 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <PreparedFeatureCard title="Presupuesto mensual" subtitle="Sin presupuesto configurado" buttonLabel="Configurar presupuesto" href="/planning/budget" icon="budget" tone="orange" />
-        <PreparedFeatureCard title="Objetivo de ahorro" subtitle="No hay un objetivo configurado" buttonLabel="Crear objetivo" href="/planning" icon="goal" tone="blue" />
+        <BudgetDashboardCard budget={data.budget} />
+        <SavingsGoalDashboardCard savingsGoal={data.savingsGoal} />
       </section>
 
       <UpcomingPaymentsCard payments={data.upcomingPayments} />

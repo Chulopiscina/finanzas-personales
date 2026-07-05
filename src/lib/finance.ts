@@ -1,4 +1,4 @@
-import { AccountType, BudgetBlockType, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
+import { AccountType, BudgetBlockType, PlanningGoalType, PlanningStatus, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
@@ -358,6 +358,14 @@ type BudgetWithCategories = { accountId: string | null; month: Date; expectedInc
 
 type BudgetBlockSummary = { limit: number; actual: number; percent: number; remaining: number };
 
+type SavingsPlanningGoal = {
+  id: string;
+  accountId: string | null;
+  targetAmount: unknown;
+  categories: Array<{ categoryId: string }>;
+  transactions: Array<{ transactionId: string; includeInternalTransfer: boolean }>;
+};
+
 function budgetMonthKey(date: Date) {
   return monthKey(startOfMonth(date));
 }
@@ -447,6 +455,81 @@ function buildBudgetSummary(budgets: BudgetWithCategories[], transactions: Trans
   };
 }
 
+function periodTargetMultiplier(range: DashboardRange, period: DashboardPeriod, transactions: TransactionWithCategory[]) {
+  if (period === "last-3-months" || period === "payroll-last-3") return 3;
+  if (period === "current-year") return 12;
+  if (period === "payroll-current" || period === "payroll-last-closed") return 1;
+  if (period === "all" || period === "payroll-all" || !range.start) {
+    const months = new Set(transactions.map((tx) => monthKey(tx.date)));
+    return Math.max(1, months.size);
+  }
+
+  const inclusiveEnd = range.end ? addDays(range.end, -1) : new Date();
+  const startMonth = startOfMonth(range.start);
+  const endMonth = startOfMonth(inclusiveEnd);
+  const months = (endMonth.getUTCFullYear() - startMonth.getUTCFullYear()) * 12 + endMonth.getUTCMonth() - startMonth.getUTCMonth() + 1;
+  return Math.max(1, months);
+}
+
+function isSavingsCategory(category: Category | null) {
+  return category?.type === "SAVINGS" || normalizeText(category?.name ?? "") === "ahorro";
+}
+
+function buildSavingsGoalSummary(goals: SavingsPlanningGoal[], transactions: TransactionWithCategory[], allocations: Map<string, number>, range: DashboardRange, period: DashboardPeriod, selectedAccount: Account | null) {
+  const multiplier = periodTargetMultiplier(range, period, transactions);
+  const targetAmount = goals.reduce((sum, goal) => sum + toNumber(goal.targetAmount), 0) * multiplier;
+  const goalCategoryIds = new Set(goals.flatMap((goal) => goal.categories.map((category) => category.categoryId)));
+  const manualTransactions = new Map<string, boolean>();
+
+  for (const goal of goals) {
+    for (const item of goal.transactions) {
+      manualTransactions.set(item.transactionId, (manualTransactions.get(item.transactionId) ?? false) || item.includeInternalTransfer);
+    }
+  }
+
+  let actualAmount = 0;
+  const countedInternalTransfers = new Set<string>();
+  const countedTransactions = new Set<string>();
+
+  for (const tx of transactions) {
+    if (countedTransactions.has(tx.id)) continue;
+    const isManual = manualTransactions.has(tx.id);
+    const matchesGoalCategory = tx.categoryId ? goalCategoryIds.has(tx.categoryId) : false;
+    const matchesSavingsCategory = isSavingsCategory(tx.category);
+    if (!isManual && !matchesGoalCategory && !matchesSavingsCategory) continue;
+    if (isReimbursement(tx) || realIncome(tx) > 0) continue;
+
+    if (tx.isInternalTransfer) {
+      const includeInternalTransfer = manualTransactions.get(tx.id) ?? false;
+      if (!isManual || !includeInternalTransfer) continue;
+      const groupKey = selectedAccount ? tx.id : tx.internalTransferGroupId ?? tx.id;
+      if (countedInternalTransfers.has(groupKey)) continue;
+      countedInternalTransfers.add(groupKey);
+      actualAmount += Math.abs(toNumber(tx.amount));
+      countedTransactions.add(tx.id);
+      continue;
+    }
+
+    const expense = signedExpense(tx);
+    if (expense <= 0) continue;
+    const netExpense = Math.max(0, expense - (allocations.get(tx.id) ?? 0));
+    if (netExpense <= 0) continue;
+    actualAmount += netExpense;
+    countedTransactions.add(tx.id);
+  }
+
+  const progressPercent = targetAmount > 0 ? Math.round((actualAmount / targetAmount) * 100) : 0;
+  return {
+    configured: goals.length > 0,
+    count: goals.length,
+    targetAmount: Number(targetAmount.toFixed(2)),
+    actualAmount: Number(actualAmount.toFixed(2)),
+    progressPercent,
+    remaining: Number((targetAmount - actualAmount).toFixed(2)),
+    movementCount: countedTransactions.size
+  };
+}
+
 function detailRow(tx: TransactionWithCategory) {
   const linkedExpenses = (tx.reimbursementLinks ?? []).map((link) => link.expense?.cleanDescription || link.expense?.concept).filter(Boolean) as string[];
   const linkedReimbursements = (tx.reimbursedByLinks ?? []).map((link) => link.reimbursement?.cleanDescription || link.reimbursement?.concept).filter(Boolean) as string[];
@@ -500,8 +583,25 @@ export async function getDashboardData(userId: string, accountId?: string | null
     include: { categories: true, account: { select: { id: true, name: true } } },
     orderBy: [{ month: "asc" }, { createdAt: "asc" }]
   });
+  const savingsGoals = await prisma.planningGoal.findMany({
+    where: {
+      userId,
+      type: PlanningGoalType.SAVINGS,
+      status: PlanningStatus.ACTIVE,
+      ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : {})
+    },
+    select: {
+      id: true,
+      accountId: true,
+      targetAmount: true,
+      categories: { select: { categoryId: true } },
+      transactions: { select: { transactionId: true, includeInternalTransfer: true } }
+    },
+    orderBy: { createdAt: "desc" }
+  });
   const allocations = reimbursementAllocation(transactions);
   const budgetSummary = buildBudgetSummary(selectBudgetsForDashboard(budgetCandidates, selectedAccount, range, period), transactions, allocations);
+  const savingsGoalSummary = buildSavingsGoalSummary(savingsGoals, transactions, allocations, range, period, selectedAccount);
   const incomeTransactions = transactions.filter((tx) => realIncome(tx) > 0);
   const expenseTransactions = transactions.filter((tx) => signedExpense(tx) > 0);
   const reimbursementTransactions = transactions.filter(isReimbursement);
@@ -581,6 +681,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
       uncategorizedCount: uncategorizedTransactions.length
     },
     budget: budgetSummary,
+    savingsGoal: savingsGoalSummary,
     details,
     charts: {
       categories,
