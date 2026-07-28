@@ -352,6 +352,14 @@ model ImportHistory {
   expenseTotal  Decimal      @default(0) @db.Decimal(12, 2)
   status        ImportStatus
   errorMessage  String?
+  bankName      String?
+  detectedFormat String?
+  validationStatus String?
+  confidence    String?
+  validationMessages Json?
+  previewData   Json?
+  confirmedAt   DateTime?
+  canceledAt    DateTime?
   createdAt     DateTime     @default(now())
   transactions  Transaction[]
 

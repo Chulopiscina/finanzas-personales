@@ -1,0 +1,8 @@
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "bankName" TEXT;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "detectedFormat" TEXT;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "validationStatus" TEXT;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "confidence" TEXT;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "validationMessages" JSONB;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "previewData" JSONB;
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "confirmedAt" TIMESTAMP(3);
+ALTER TABLE "ImportHistory" ADD COLUMN IF NOT EXISTS "canceledAt" TIMESTAMP(3);
