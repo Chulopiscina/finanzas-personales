@@ -4,7 +4,7 @@ import { CategoryType, ImportStatus, TransactionType } from "@prisma/client";
 import { jsonError } from "@/lib/api";
 import { parseBankCsv } from "@/lib/csv";
 import { requireUser } from "@/lib/auth";
-import { ensureDefaultAccount, recalculateMonthlySummaries } from "@/lib/finance";
+import { detectAndMarkInternalTransfers, ensureDefaultAccount, recalculateMonthlySummaries } from "@/lib/finance";
 import { ensurePayrollCategory, isPayrollCategoryName, PAYROLL_CATEGORY_NAME } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
@@ -165,6 +165,7 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    await detectAndMarkInternalTransfers(session.user.id);
     await recalculateMonthlySummaries(session.user.id);
 
     return NextResponse.json({

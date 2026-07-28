@@ -549,8 +549,6 @@ function detailRow(tx: TransactionWithCategory) {
 
 export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month", periodMode: DashboardPeriodMode = "calendar") {
   await ensureDefaultAccount(userId);
-  await detectAndMarkInternalTransfers(userId);
-
   const accounts = await prisma.account.findMany({ where: { userId }, orderBy: [{ isArchived: "asc" }, { createdAt: "asc" }] });
   const selectedAccount = accountId ? accounts.find((account) => account.id === accountId) ?? null : null;
   const activeAccountIds = accounts.filter((account) => !account.isArchived).map((account) => account.id);
@@ -562,10 +560,10 @@ export async function getDashboardData(userId: string, accountId?: string | null
     reimbursementLinks: { include: { expense: { include: { category: true, account: true } } } },
     reimbursedByLinks: { include: { reimbursement: { include: { category: true, account: true } } } }
   };
+  const baseTransactionWhere = { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } };
 
-  const [allTransactions, balanceTransactions, lastImport, recentImports, recurringPayments] = await Promise.all([
-    prisma.transaction.findMany({ where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } }, include: transactionInclude, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
-    prisma.transaction.findMany({ where: { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } }, select: { accountId: true, amount: true, balance: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
+  const [balanceTransactions, lastImport, recentImports, recurringPayments, latestTransaction] = await Promise.all([
+    prisma.transaction.findMany({ where: baseTransactionWhere, select: { accountId: true, amount: true, balance: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
     prisma.importHistory.findFirst({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, orderBy: { createdAt: "desc" } }),
     prisma.importHistory.findMany({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, include: { account: true }, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.recurringPayment.findMany({
@@ -573,11 +571,39 @@ export async function getDashboardData(userId: string, accountId?: string | null
       include: { account: { select: { id: true, name: true } }, category: { select: { id: true, name: true, color: true } } },
       orderBy: [{ nextChargeDate: "asc" }, { createdAt: "desc" }],
       take: 50
-    })
+    }),
+    periodMode === "calendar" ? prisma.transaction.findFirst({ where: baseTransactionWhere, select: { date: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null)
   ]);
 
-  const range = periodRange(period, allTransactions, periodMode);
-  const transactions = allTransactions.filter((tx) => inPeriod(tx, range));
+  let range: DashboardRange;
+  if (periodMode === "payroll") {
+    const cycleTransactions = await prisma.transaction.findMany({
+      where: baseTransactionWhere,
+      select: {
+        id: true,
+        date: true,
+        concept: true,
+        cleanDescription: true,
+        rawDescription: true,
+        amount: true,
+        type: true,
+        isInternalTransfer: true,
+        category: true,
+        reimbursementLinks: { select: { expenseId: true } }
+      },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }]
+    });
+    range = periodRange(period, cycleTransactions as unknown as TransactionWithCategory[], periodMode);
+  } else {
+    range = periodRange(period, latestTransaction ? ([latestTransaction] as unknown as TransactionWithCategory[]) : [], periodMode);
+  }
+
+  const dateFilter = range.start || range.end ? { date: { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) } } : {};
+  const transactions = await prisma.transaction.findMany({
+    where: { ...baseTransactionWhere, ...dateFilter },
+    include: transactionInclude,
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }]
+  });
   const budgetCandidates = await prisma.monthlyBudget.findMany({
     where: { userId, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : { accountId: null }) },
     include: { categories: true, account: { select: { id: true, name: true } } },
@@ -697,7 +723,6 @@ export async function getDashboardData(userId: string, accountId?: string | null
 }
 
 export async function recalculateMonthlySummaries(userId: string) {
-  await detectAndMarkInternalTransfers(userId);
   const transactions = await prisma.transaction.findMany({ where: { userId }, include: { category: true, reimbursementLinks: { include: { expense: { include: { category: true } } } }, reimbursedByLinks: { include: { reimbursement: { include: { category: true } } } } }, orderBy: { date: "asc" } });
   const monthly = buildMonthlyRows(transactions);
   await prisma.monthlySummary.deleteMany({ where: { userId } });

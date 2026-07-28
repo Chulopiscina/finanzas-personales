@@ -1,7 +1,8 @@
 "use client";
 
 import { HandCoins, MoreHorizontal, Search, Target, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -87,18 +88,24 @@ export function TransactionsTable({
   accounts,
   imports,
   planningGoals,
-  initialFilters
+  initialFilters,
+  pagination
 }: {
   initialTransactions: TransactionRow[];
   categories: Category[];
   accounts: Account[];
   imports: ImportOption[];
   planningGoals: PlanningGoalOption[];
-  initialFilters: { accountId: string; categoryId: string; type: string; importId: string; planningGoalId: string };
+  initialFilters: { accountId: string; categoryId: string; type: string; importId: string; planningGoalId: string; query: string };
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const [transactions, setTransactions] = useState(initialTransactions);
   const [categories, setCategories] = useState(initialCategories);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialFilters.query);
   const [filters, setFilters] = useState(initialFilters);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
@@ -108,36 +115,42 @@ export function TransactionsTable({
   const [counterpartSearch, setCounterpartSearch] = useState("");
   const [openActions, setOpenActions] = useState<{ transactionId: string; left: number; top: number } | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return transactions.filter((tx) => {
-      const goalNames = tx.planningGoals.map((item) => item.goal.name).join(" ");
-      const reimbursementText = tx.reimbursementLinks.length > 0 ? "reembolso" : "";
-      const expenseKindText = tx.type === "EXPENSE" ? (tx.isFixedExpense ? "gasto fijo fijo" : "gasto variable variable") : "";
-      const matchesQuery =
-        !q ||
-        [tx.concept, tx.cleanDescription, tx.category?.name, tx.account?.name, tx.type, goalNames, reimbursementText, expenseKindText]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q);
+  useEffect(() => {
+    setTransactions(initialTransactions);
+    setFilters(initialFilters);
+    setQuery(initialFilters.query);
+  }, [initialTransactions, initialFilters]);
 
-      const matchesPlanningGoal =
-        !filters.planningGoalId ||
-        (filters.planningGoalId === "__none" && tx.planningGoals.length === 0) ||
-        (filters.planningGoalId === "__any" && tx.planningGoals.length > 0) ||
-        tx.planningGoals.some((item) => item.goalId === filters.planningGoalId);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const next = new URLSearchParams(searchParams.toString());
+      const values = { accountId: filters.accountId, categoryId: filters.categoryId, type: filters.type, importId: filters.importId, planningGoalId: filters.planningGoalId, q: query.trim() };
+      for (const [key, value] of Object.entries(values)) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
+      next.set("pageSize", String(pagination.pageSize));
+      next.delete("page");
+      startTransition(() => router.replace(pathname + "?" + next.toString(), { scroll: false }));
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [filters, pathname, query, router, searchParams, pagination.pageSize]);
 
-      return (
-        matchesQuery &&
-        (!filters.accountId || tx.accountId === filters.accountId) &&
-        (!filters.categoryId || tx.categoryId === filters.categoryId) &&
-        (!filters.type || tx.type === filters.type) &&
-        (!filters.importId || tx.importHistory?.id === filters.importId) &&
-        matchesPlanningGoal
-      );
-    });
-  }, [query, transactions, filters]);
+  function goToPage(page: number) {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("page", String(Math.max(1, Math.min(pagination.totalPages, page))));
+    next.set("pageSize", String(pagination.pageSize));
+    startTransition(() => router.replace(pathname + "?" + next.toString(), { scroll: false }));
+  }
+
+  function updatePageSize(pageSize: string) {
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("pageSize", pageSize);
+    next.delete("page");
+    startTransition(() => router.replace(pathname + "?" + next.toString(), { scroll: false }));
+  }
+
+  const filtered = transactions;
 
   async function patchTransaction(id: string, body: Record<string, unknown>) {
     setSavingId(id);
@@ -156,7 +169,7 @@ export function TransactionsTable({
     if (!updated) return;
     const category = categories.find((item) => item.id === categoryId) ?? fallbackCategory ?? updated.category ?? null;
     setTransactions((current) =>
-      current.map((tx) => (tx.id === id ? { ...tx, categoryId: category?.id ?? null, category } : tx))
+      current.map((tx) => (tx.id === id ? { ...tx, ...updated, categoryId: category?.id ?? null, category } : tx))
     );
   }
 
@@ -466,7 +479,7 @@ export function TransactionsTable({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-card-foreground">Movimientos</h2>
-            <p className="text-sm text-muted-foreground">{filtered.length} de {transactions.length} transacciones</p>
+            <p className="text-sm text-muted-foreground">{pagination.total} transacciones - pagina {pagination.page} de {pagination.totalPages}{isPending ? " - actualizando..." : ""}</p>
           </div>
           <label className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -633,6 +646,28 @@ export function TransactionsTable({
             </article>
           );
         })}
+      </div>
+
+
+      {filtered.length === 0 ? (
+        <div className="border-t border-border p-8 text-center text-sm text-muted-foreground">
+          No hay movimientos con los filtros actuales.
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-3 border-t border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Filas por pagina</span>
+          <Select value={String(pagination.pageSize)} onChange={(event) => updatePageSize(event.target.value)} className="h-8 w-20 text-xs">
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </Select>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => goToPage(pagination.page - 1)} disabled={pagination.page <= 1 || isPending}>Anterior</Button>
+          <span className="text-sm text-muted-foreground">{pagination.page} / {pagination.totalPages}</span>
+          <Button type="button" variant="secondary" size="sm" onClick={() => goToPage(pagination.page + 1)} disabled={pagination.page >= pagination.totalPages || isPending}>Siguiente</Button>
+        </div>
       </div>
 
       {openActions ? (() => {

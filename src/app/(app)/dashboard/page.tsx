@@ -1,6 +1,6 @@
-﻿import { Role } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { DashboardAccountSelector } from "@/components/dashboard-account-selector";
-import { DashboardCharts } from "@/components/dashboard-charts";
+import { DashboardChartsLazy } from "@/components/dashboard-charts-lazy";
 import { DashboardMetrics } from "@/components/dashboard-metrics";
 import { DashboardPeriodSelector } from "@/components/dashboard-period-selector";
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
@@ -102,7 +102,7 @@ export default async function DashboardPage({ searchParams }: Props) {
             <p className="text-sm text-muted-foreground">Resumen visual del periodo seleccionado.</p>
           </div>
         </div>
-        <DashboardCharts categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
+        <DashboardChartsLazy categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
       </section>
     </div>
   );

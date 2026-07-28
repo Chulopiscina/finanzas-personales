@@ -184,6 +184,12 @@ model Transaction {
 
   @@unique([userId, accountId, sourceHash])
   @@index([userId, date])
+  @@index([userId, accountId, date])
+  @@index([userId, categoryId, date])
+  @@index([userId, importHistoryId, date])
+  @@index([userId, type, date])
+  @@index([userId, isInternalTransfer, date])
+  @@index([userId, isFixedExpense, date])
   @@index([accountId, date])
   @@index([categoryId])
   @@index([importHistoryId])
@@ -239,6 +245,7 @@ model PlanningGoalTransaction {
 
   @@id([goalId, transactionId])
   @@index([transactionId])
+  @@index([goalId, createdAt])
 }
 
 model TransactionReimbursement {
@@ -250,6 +257,7 @@ model TransactionReimbursement {
 
   @@id([reimbursementId, expenseId])
   @@index([expenseId])
+  @@index([reimbursementId, createdAt])
 }
 
 model RecurringPayment {
