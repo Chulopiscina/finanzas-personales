@@ -1,5 +1,8 @@
 import { spawnSync } from "node:child_process";
 
+const SUPABASE_DATABASE_URL_FORMAT = "postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres?schema=app";
+const SUPABASE_DIRECT_URL_FORMAT = "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?schema=app";
+
 function readUrl(name) {
   const value = process.env[name];
   if (!value) {
@@ -13,9 +16,20 @@ function readUrl(name) {
   }
 }
 
+function isPostgresUrl(url) {
+  return url.protocol === "postgresql:" || url.protocol === "postgres:";
+}
+
 function validateSupabaseUrls() {
   const databaseUrl = readUrl("DATABASE_URL");
   const directUrl = readUrl("DIRECT_URL");
+
+  if (!isPostgresUrl(databaseUrl)) {
+    throw new Error("DATABASE_URL debe empezar por postgresql://");
+  }
+  if (!isPostgresUrl(directUrl)) {
+    throw new Error("DIRECT_URL debe empezar por postgresql://");
+  }
 
   const usesSupabase = databaseUrl.hostname.includes("supabase.com") || directUrl.hostname.includes("supabase.com");
   if (!usesSupabase) {
@@ -24,23 +38,24 @@ function validateSupabaseUrls() {
 
   if (!databaseUrl.hostname.includes("pooler.supabase.com") || databaseUrl.port !== "6543") {
     throw new Error(
-      "DATABASE_URL debe usar el pooler transaccional de Supabase para runtime: aws-...pooler.supabase.com:6543 con pgbouncer=true."
+      `DATABASE_URL debe usar el transaction pooler de Supabase para runtime. Formato: ${SUPABASE_DATABASE_URL_FORMAT}`
     );
   }
 
-  if (!databaseUrl.searchParams.has("pgbouncer")) {
-    throw new Error("DATABASE_URL debe incluir pgbouncer=true para Prisma en runtime con Supabase pooler.");
+  const databaseUser = decodeURIComponent(databaseUrl.username);
+  if (!databaseUser.startsWith("postgres.")) {
+    throw new Error("DATABASE_URL debe usar el usuario del pooler: postgres.<project-ref>.");
   }
 
   if (directUrl.hostname.includes("pooler.supabase.com")) {
     throw new Error(
-      "DIRECT_URL no debe apuntar al pooler de Supabase. Para migraciones usa la conexion directa: postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?schema=app"
+      `DIRECT_URL no debe apuntar al pooler de Supabase. Para migraciones usa la conexion directa. Formato: ${SUPABASE_DIRECT_URL_FORMAT}`
     );
   }
 
   if (!directUrl.hostname.startsWith("db.") || !directUrl.hostname.endsWith(".supabase.co") || directUrl.port !== "5432") {
     throw new Error(
-      "DIRECT_URL debe usar la conexion directa de Supabase: db.<project-ref>.supabase.co:5432. No uses aws-...pooler.supabase.com:5432."
+      `DIRECT_URL debe usar la conexion directa de Supabase. Formato: ${SUPABASE_DIRECT_URL_FORMAT}`
     );
   }
 
@@ -65,7 +80,10 @@ try {
 } catch (error) {
   console.error("\nConfiguracion de Supabase/Prisma incorrecta:\n");
   console.error(error instanceof Error ? error.message : String(error));
-  console.error("\nCorrige las variables DATABASE_URL y DIRECT_URL en Vercel y vuelve a desplegar.\n");
+  console.error("\nVariables esperadas en Vercel:");
+  console.error(`DATABASE_URL=${SUPABASE_DATABASE_URL_FORMAT}`);
+  console.error(`DIRECT_URL=${SUPABASE_DIRECT_URL_FORMAT}`);
+  console.error("\nCorrige DATABASE_URL y DIRECT_URL en Vercel y vuelve a desplegar.\n");
   process.exit(1);
 }
 

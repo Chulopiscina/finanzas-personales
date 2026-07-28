@@ -149,8 +149,8 @@ Para que cada cambio se publique automaticamente:
 Variables necesarias en Vercel:
 
 ```env
-DATABASE_URL="postgresql://postgres.qioihfkftfowabquakgh:<SUPABASE_PASSWORD>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&schema=app"
-DIRECT_URL="postgresql://postgres:<SUPABASE_PASSWORD>@db.qioihfkftfowabquakgh.supabase.co:5432/postgres?sslmode=require&schema=app"
+DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres?schema=app"
+DIRECT_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?schema=app"
 AUTH_SECRET="un-secreto-largo-y-aleatorio-de-32-caracteres-minimo"
 NEXT_PUBLIC_APP_URL="https://tu-dominio-de-vercel.vercel.app"
 INITIAL_ADMIN_EMAIL="oriolcasaponsaprat@gmail.com"
@@ -167,7 +167,7 @@ npm run db:seed
 
 Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
 
-La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` valida las URLs antes de migrar: `DATABASE_URL` debe ir al pooler transaccional (`aws-...pooler.supabase.com:6543`) y `DIRECT_URL` debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`, porque Prisma puede fallar en Vercel con `tenant/user ... not found`.
+La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` valida las URLs antes de migrar: `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>`, y `DIRECT_URL` debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`, porque Prisma puede fallar en Vercel con `tenant/user ... not found`.
 
 ## Archivos originales
 
