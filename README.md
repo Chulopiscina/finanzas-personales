@@ -69,7 +69,7 @@ En producción, usa un `AUTH_SECRET` largo y aleatorio.
 4. Ejecuta migraciones:
 
 ```bash
-npm run prisma:deploy
+npm run db:deploy
 npm run db:seed
 ```
 
@@ -86,7 +86,7 @@ npm run build
 4. Después del primer despliegue, ejecuta las migraciones contra producción:
 
 ```bash
-npm run prisma:deploy
+npm run db:deploy
 npm run db:seed
 ```
 
@@ -124,7 +124,7 @@ npm run build            # build Next.js + Prisma generate
 npm run start            # servidor producción
 npm run typecheck        # TypeScript
 npm run prisma:migrate   # migración local
-npm run prisma:deploy    # migración producción
+npm run db:deploy    # migración producción
 npm run db:seed          # admin inicial + categorías
 npm run prisma:studio    # interfaz Prisma
 ```
@@ -161,13 +161,13 @@ INITIAL_ADMIN_NAME="Oriol Casa Ponsa Prat"
 Despues de configurar las variables, aplica migraciones y seed contra Supabase desde local usando esas mismas variables:
 
 ```bash
-npm run prisma:deploy
+npm run db:deploy
 npm run db:seed
 ```
 
 Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
 
-La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` valida las URLs antes de migrar: `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>`, y `DIRECT_URL` debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`, porque Prisma puede fallar en Vercel con `tenant/user ... not found`.
+La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` no ejecuta migraciones: solo ejecuta `prisma generate` y `next build`. `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>`. `DIRECT_URL` queda reservada para migraciones manuales con `npm run db:deploy` y debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`.
 
 ## Archivos originales
 
