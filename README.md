@@ -149,7 +149,7 @@ Para que cada cambio se publique automaticamente:
 Variables necesarias en Vercel:
 
 ```env
-DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres?schema=app"
+DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&schema=app"
 DIRECT_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?schema=app"
 AUTH_SECRET="un-secreto-largo-y-aleatorio-de-32-caracteres-minimo"
 NEXT_PUBLIC_APP_URL="https://tu-dominio-de-vercel.vercel.app"
@@ -167,7 +167,7 @@ npm run db:seed
 
 Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
 
-La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` no ejecuta migraciones: solo ejecuta `prisma generate` y `next build`. `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>`. `DIRECT_URL` queda reservada para migraciones manuales con `npm run db:deploy` y debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`.
+La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` no ejecuta migraciones: solo ejecuta `prisma generate` y `next build`. `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>` e incluir `pgbouncer=true`. `DIRECT_URL` queda reservada para migraciones manuales con `npm run db:deploy` y debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`.
 
 ## Archivos originales
 
