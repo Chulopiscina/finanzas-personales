@@ -70,6 +70,7 @@ export async function verifyShortcutConnection(authorization: string | null) {
     const reset = now.getTime() - device.windowStart.getTime() >= 3_600_000;
     if (!reset && device.windowCount >= 120) throw new InputError("Demasiadas comprobaciones. Reintenta más tarde.", 429);
     await tx.shortcutDevice.update({ where: { id: device.id }, data: { lastVerifiedAt: now, windowStart: reset ? now : device.windowStart, windowCount: reset ? 1 : { increment: 1 } } });
-    return { ok: true, checkedAt: now.toISOString() };
+    // Stable text marker for Shortcuts: boolean-to-text is localized by iOS.
+    return { ok: true, connection: "verified", checkedAt: now.toISOString() };
   });
 }

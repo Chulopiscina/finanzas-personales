@@ -1,0 +1,52 @@
+name: Sign BBVA shortcut with Apple
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - shortcuts/FinanzasBBVA.cherri
+      - scripts/verify-shortcut.py
+      - .github/workflows/bbva-shortcut.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    # Standard runner: free for this public repository. No financial credentials.
+    runs-on: macos-15
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build pinned compiler without third-party signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone https://github.com/electrikmilk/cherri.git "$RUNNER_TEMP/cherri"
+          git -C "$RUNNER_TEMP/cherri" checkout bcc0095754e2cc0baaeb4d93dae172b8153b4716
+          cd "$RUNNER_TEMP/cherri"
+          go build -o "$RUNNER_TEMP/cherri-compiler" .
+      - name: Compile, inspect and sign with Apple's native command
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp shortcuts/FinanzasBBVA.cherri "$RUNNER_TEMP/FinanzasBBVA.cherri"
+          "$RUNNER_TEMP/cherri-compiler" "$RUNNER_TEMP/FinanzasBBVA.cherri" --skip-sign --derive-uuids
+          python3 scripts/verify-shortcut.py "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut"
+          plutil -convert binary1 "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut"
+          mkdir -p "$RUNNER_TEMP/signed"
+          shortcuts sign --mode anyone --input "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut" --output "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut"
+          test -s "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut"
+          cd "$RUNNER_TEMP/signed"
+          shasum -a 256 Finanzas-BBVA.shortcut > SHA256SUMS
+      - name: Publish immutable signed file
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: bbva-shortcut-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Finanzas BBVA (iOS 27)" --notes "Native Apple signing completed by CI. Physical iPhone installation and BBVA notification acceptance test remain separate. No user credentials are included." "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut" "$RUNNER_TEMP/signed/SHA256SUMS"

@@ -10,3 +10,4 @@ work/
 outputs/
 .vercel
 tsconfig.tsbuildinfo
+shortcuts/*_unsigned.shortcut

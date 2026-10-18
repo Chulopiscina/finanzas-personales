@@ -1,0 +1,88 @@
+#define name Finanzas BBVA
+#define version 27
+#define color teal
+#define glyph creditCard
+#define inputs text
+#include 'actions/text'
+#include 'actions/web'
+#include 'actions/storage'
+
+// Public distribution contains no stored values or credentials.
+// Keep the origin literal: input from a shortcuts:// URL is untrusted.
+const origin = "https://finanzas-personales-lime-two.vercel.app"
+const inputText = getText(ShortcutInput)
+const pairingInput = matchText('^\s*\{\s*"mode"\s*:\s*"pair"', inputText)
+if pairingInput {
+    const setup = getDictionary(inputText)
+    const setupOrigin = "{setup['origin']}"
+    const version = "{setup['version']}"
+    if setupOrigin != origin {
+        alert("Origen no permitido. Abre Conectar BBVA desde tu web de Finanzas Personales.")
+        stop()
+    }
+    if version != "1" {
+        alert("Vinculacion no compatible. Inicia una nueva conexion desde la web.")
+        stop()
+    }
+    const code = "{setup['code']}"
+    const validCode = matchText('^pair_[A-Za-z0-9_-]{43}$', code)
+    if !validCode {
+        alert("Enlace de vinculacion no valido.")
+        stop()
+    }
+    confirm("Vas a enviar las notificaciones BBVA a la cuenta que has elegido en Finanzas Personales. La conexion anterior de este atajo sera sustituida.", "Conectar BBVA")
+    const exchangeResponse = jsonRequest("{origin}/api/integrations/shortcuts/pairing/exchange", "POST", {"code": "{code}"}, {"Content-Type": "application/json"})
+    const exchange = getDictionary(exchangeResponse)
+    const newToken = "{exchange['token']}"
+    const validToken = matchText('^fp_[A-Za-z0-9_-]{43}$', newToken)
+    if !validToken {
+        alert("No se pudo vincular. El enlace puede haber caducado. Vuelve a la web e inicia otra conexion.")
+        stop()
+    }
+    // iOS 27 shortcut-scoped storage, never global or clipboard.
+    storeValue("bbva-token", newToken, false)
+    const checkedResponse = jsonRequest("{origin}/api/integrations/shortcuts/check", "POST", {}, {"Authorization": "Bearer {newToken}", "Content-Type": "application/json"})
+    const checked = getDictionary(checkedResponse)
+    const ok = "{checked['connection']}"
+    if ok != "verified" {
+        alert("No se pudo comprobar la conexion. Revisa su estado en la web antes de activar la automatizacion.")
+        stop()
+    }
+    openURL("{origin}/notifications?pairing={exchange['pairingId']}")
+    stop()
+}
+
+const token = getStoredValue("bbva-token", false)
+if !token {
+    alert("Primero abre Conectar BBVA en Finanzas Personales y pulsa Vincular este iPhone.")
+    stop()
+}
+if !inputText {
+    const healthResponse = jsonRequest("{origin}/api/integrations/shortcuts/check", "POST", {}, {"Authorization": "Bearer {token}", "Content-Type": "application/json"})
+    const health = getDictionary(healthResponse)
+    const healthOk = "{health['connection']}"
+    if healthOk == "verified" {
+        alert("Conexion comprobada. Falta comprobar una notificacion BBVA real. Ningun movimiento se ha creado.")
+    } else {
+        alert("Conexion no disponible. Comprueba el estado en la web y vuelve a vincular si ha caducado.")
+    }
+    stop()
+}
+const length = count(inputText, "Characters")
+if length > 8000 {
+    alert("La notificacion es demasiado larga. No se ha enviado. Importa el extracto para revisar el movimiento.")
+    stop()
+}
+// A transport ID, not a bank reference. Generate once, before the request.
+const r1 = randomNumber(100000000, 999999999)
+const r2 = randomNumber(100000000, 999999999)
+const r3 = randomNumber(100000000, 999999999)
+const r4 = randomNumber(100000000, 999999999)
+const eventId = "bbva-{r1}-{r2}-{r3}-{r4}"
+// No guessed amount, account, merchant, bank date or balance.
+const response = jsonRequest("{origin}/api/integrations/shortcuts/events", "POST", {"eventId": "{eventId}", "body": "{inputText}", "sourceApp": "BBVA"}, {"Authorization": "Bearer {token}", "Content-Type": "application/json"})
+const result = getDictionary(response)
+const receivedId = "{result['id']}"
+if !receivedId {
+    alert("No se pudo confirmar la recepcion. Revisa la bandeja en la web. Los saldos no han cambiado.")
+}
