@@ -4,6 +4,8 @@ import { formatCurrency } from "@/lib/format";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
 import { accountingType, grossExpense, income, isRefund, refundShares, ledgerTotals, spendingEntries, savingsContribution } from "@/lib/ledger";
 import { addMoney, cents, euros, sumMoney } from "@/lib/money";
+import { getPlanningGoalProgress, planningRelations } from "@/lib/planning";
+import { excludesPayroll, isPayrollText } from "@/lib/payroll";
 
 type ReimbursementLink = {
   expenseId: string;
@@ -68,7 +70,7 @@ function realIncome(tx: TransactionWithCategory) {
   return income(tx);
 }
 
-export type DashboardRange = { start: Date | null; end: Date | null; label: string };
+export type DashboardRange = { start: Date | null; end: Date | null; label: string; available?: boolean; cycleCount?: number };
 
 function startOfDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -95,13 +97,13 @@ function isPayrollTransaction(tx: TransactionWithCategory) {
   if (realIncome(tx) <= 0 || tx.isInternalTransfer || isReimbursement(tx)) return false;
   const category = normalizeText(tx.category?.name ?? "");
   const text = normalizeText([tx.concept, tx.cleanDescription, tx.rawDescription, tx.category?.name].filter(Boolean).join(" "));
-  const looksLikePayroll = category === "nomina" || /\b(abono de nomina|nomina|nomines)\b/.test(text);
-  const excluded = /\b(bizum|reembolso|efectivo|cash|transferencia interna|traspaso)\b/.test(text);
+  const looksLikePayroll = isPayrollText(category) || isPayrollText(text);
+  const excluded = excludesPayroll(text);
   return looksLikePayroll && !excluded;
 }
 
 function payrollCycles(transactions: TransactionWithCategory[]) {
-  const starts = [...new Set(transactions.filter(isPayrollTransaction).map((tx) => startOfDay(tx.date).getTime()))]
+  const starts = [...new Set(transactions.filter((tx) => tx.date <= new Date() && isPayrollTransaction(tx)).map((tx) => startOfDay(tx.date).getTime()))]
     .sort((left, right) => left - right)
     .map((time) => new Date(time));
 
@@ -129,16 +131,16 @@ function calendarPeriodRange(period: DashboardPeriod, transactions: TransactionW
 
 function payrollPeriodRange(period: DashboardPeriod, transactions: TransactionWithCategory[]): DashboardRange {
   const cycles = payrollCycles(transactions);
-  if (cycles.length === 0) return { start: null, end: null, label: "Ciclo de nómina: sin nóminas detectadas" };
+  if (cycles.length === 0) return { start: null, end: null, available: false, label: "Ciclo de nómina: sin nóminas detectadas" };
 
   const current = cycles.at(-1)!;
   if (period === "payroll-all") {
-    return { start: cycles[0].start, end: null, label: "Todos los ciclos de nómina" };
+    return { start: cycles[0].start, end: addDays(startOfDay(new Date()), 1), cycleCount: cycles.length, label: "Todos los ciclos de nómina" };
   }
 
   if (period === "payroll-last-3") {
     const first = cycles[Math.max(0, cycles.length - 3)];
-    return { start: first.start, end: null, label: "últimos 3 ciclos de nómina" };
+    return { start: first.start, end: addDays(startOfDay(new Date()), 1), cycleCount: Math.min(3, cycles.length), label: "últimos 3 ciclos de nómina" };
   }
 
   if (period === "payroll-last-closed") {
@@ -146,9 +148,10 @@ function payrollPeriodRange(period: DashboardPeriod, transactions: TransactionWi
     if (closed?.end) {
       return { start: closed.start, end: closed.end, label: "Ciclo de nómina: " + shortDateLabel(closed.start) + " - " + shortDateLabel(addDays(closed.end, -1)) };
     }
+    return { start: null, end: null, available: false, label: "Ciclo de nómina: todavía no hay un ciclo cerrado" };
   }
 
-  return { start: current.start, end: null, label: "Ciclo actual: " + shortDateLabel(current.start) + " - hoy" };
+  return { start: current.start, end: addDays(startOfDay(new Date()), 1), label: "Ciclo actual: " + shortDateLabel(current.start) + " - hoy" };
 }
 
 function periodRange(period: DashboardPeriod, transactions: TransactionWithCategory[], mode: DashboardPeriodMode = "calendar"): DashboardRange {
@@ -316,6 +319,7 @@ function budgetMonthKey(date: Date) {
 }
 
 export function rangeIncludesBudgetMonth(month: Date, range: DashboardRange, period: DashboardPeriod) {
+  if (range.available === false) return false;
   if (period === "all" || period === "payroll-all") return true;
   if (!range.start) return true;
   const monthStart = startOfMonth(month);
@@ -392,6 +396,7 @@ export function buildBudgetSummary(budgets: BudgetWithCategories[], transactions
 }
 
 function periodTargetMultiplier(range: DashboardRange, period: DashboardPeriod, transactions: TransactionWithCategory[]) {
+  if (range.cycleCount) return range.cycleCount;
   if (period === "last-3-months" || period === "payroll-last-3") return 3;
   if (period === "current-year") return 12;
   if (period === "payroll-current" || period === "payroll-last-closed") return 1;
@@ -482,21 +487,22 @@ function detailRow(tx: TransactionWithCategory) {
 }
 
 export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month", periodMode: DashboardPeriodMode = "calendar", includeDetails = false) {
-  await ensureDefaultAccount(userId);
   const accounts = await prisma.account.findMany({ where: { userId }, orderBy: [{ isArchived: "asc" }, { createdAt: "asc" }] });
+  if (!accounts.length) accounts.push(await ensureDefaultAccount(userId));
   const selectedAccount = accountId ? accounts.find((account) => account.id === accountId) ?? null : null;
   const activeAccountIds = accounts.filter((account) => !account.isArchived).map((account) => account.id);
   const accountFilter = selectedAccount ? [selectedAccount.id] : activeAccountIds;
 
+  const linkedSelect = { id: true, date: true, amount: true, accountId: true, isInternalTransfer: true, categoryId: true, isFixedExpense: true, concept: true, cleanDescription: true, category: true, account: { select: { name: true } } } satisfies Prisma.TransactionSelect;
   const transactionInclude = {
     category: true,
-    account: true,
-    reimbursementLinks: { include: { expense: { include: { category: true, account: true } } } },
-    reimbursedByLinks: { include: { reimbursement: { include: { category: true, account: true } } } }
+    account: { select: { name: true } },
+    reimbursementLinks: { select: { expenseId: true, reimbursementId: true, expense: { select: linkedSelect } } },
+    ...(includeDetails ? { reimbursedByLinks: { select: { expenseId: true, reimbursementId: true, reimbursement: { select: linkedSelect } } } } : {})
   };
   const baseTransactionWhere = { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } };
 
-  const [balances, lastImport, recentImports, recurringPayments, latestTransaction] = await Promise.all([
+  const [balances, lastImport, recentImports, recurringPayments, latestTransaction, budgetCandidates, planningGoals] = await Promise.all([
     getAccountBalances(userId, accountFilter),
     prisma.importHistory.findFirst({ where: { userId, status: "COMPLETED", accountId: { in: accountFilter } }, select: { createdAt: true }, orderBy: { createdAt: "desc" } }),
     prisma.importHistory.findMany({ where: { userId, accountId: { in: accountFilter } }, select: { id: true, fileName: true, createdAt: true, insertedRows: true, account: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 5 }),
@@ -505,13 +511,15 @@ export async function getDashboardData(userId: string, accountId?: string | null
       include: { account: { select: { id: true, name: true } }, category: { select: { id: true, name: true, color: true } } },
       orderBy: [{ nextChargeDate: "asc" }, { createdAt: "desc" }],
     }),
-    periodMode === "calendar" ? prisma.transaction.findFirst({ where: baseTransactionWhere, select: { date: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null)
+    periodMode === "calendar" ? prisma.transaction.findFirst({ where: baseTransactionWhere, select: { date: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null),
+    prisma.monthlyBudget.findMany({ where: { userId, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : { accountId: null }) }, include: { categories: true }, orderBy: [{ month: "asc" }, { createdAt: "asc" }] }),
+    prisma.planningGoal.findMany({ where: { userId, status: PlanningStatus.ACTIVE, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : {}) }, include: planningRelations, orderBy: { createdAt: "desc" } })
   ]);
 
   let range: DashboardRange;
   if (periodMode === "payroll") {
     const cycleTransactions = await prisma.transaction.findMany({
-      where: { ...baseTransactionWhere, amount: { gt: 0 }, isInternalTransfer: false, reimbursementLinks: { none: {} }, OR: [{ category: { type: "INCOME" } }, { concept: { contains: "nom", mode: "insensitive" } }, { cleanDescription: { contains: "nom", mode: "insensitive" } }] },
+      where: { ...baseTransactionWhere, amount: { gt: 0 }, isInternalTransfer: false, reimbursementLinks: { none: {} }, date: { lte: new Date() } },
       select: {
         id: true,
         date: true,
@@ -533,7 +541,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
 
   const dateFilter = range.start || range.end ? { date: { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) } } : {};
   const transactions = await prisma.transaction.findMany({
-    where: { ...baseTransactionWhere, ...dateFilter },
+    where: { ...baseTransactionWhere, ...dateFilter, ...(range.available === false ? { id: { in: [] } } : {}) },
     select: {
       id: true, date: true, amount: true, balance: true, type: true, categoryId: true, accountId: true,
       isInternalTransfer: true, isFixedExpense: true, internalTransferGroupId: true,
@@ -542,29 +550,10 @@ export async function getDashboardData(userId: string, accountId?: string | null
     },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }]
   }) as unknown as TransactionWithCategory[];
-  const budgetCandidates = await prisma.monthlyBudget.findMany({
-    where: { userId, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : { accountId: null }) },
-    include: { categories: true, account: { select: { id: true, name: true } } },
-    orderBy: [{ month: "asc" }, { createdAt: "asc" }]
-  });
-  const savingsGoals = await prisma.planningGoal.findMany({
-    where: {
-      userId,
-      type: PlanningGoalType.SAVINGS,
-      status: PlanningStatus.ACTIVE,
-      ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : {})
-    },
-    select: {
-      id: true,
-      accountId: true,
-      targetAmount: true,
-      period: true,
-      periodStart: true,
-      periodEnd: true,
-      categories: { select: { categoryId: true } },
-      transactions: { select: { transactionId: true, includeInternalTransfer: true } }
-    },
-    orderBy: { createdAt: "desc" }
+  const savingsGoals = planningGoals.filter((goal) => goal.type === PlanningGoalType.SAVINGS);
+  const planning = await getPlanningGoalProgress(userId, {
+    range, targetMultiplier: periodTargetMultiplier(range, period, transactions), includeMovements: false,
+    preloaded: { goals: planningGoals.filter((goal) => goal.showInDashboard), transactions }
   });
   const allocations = reimbursementAllocation(transactions);
   const budgetSummary = buildBudgetSummary(selectBudgetsForDashboard(budgetCandidates, selectedAccount, range, period), transactions);
@@ -647,6 +636,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
       uncategorizedCount: uncategorizedTransactions.length
     },
     budget: budgetSummary,
+    planning,
     savingsGoal: savingsGoalSummary,
     details,
     charts: {

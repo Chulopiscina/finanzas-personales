@@ -74,13 +74,15 @@ export default async function MovementsPage({ searchParams }: Props) {
   const [transactions, categories, accounts, imports, planningGoals] = await Promise.all([
     prisma.transaction.findMany({
       where,
-      include: {
+      select: {
+        id: true, date: true, concept: true, cleanDescription: true, amount: true, balance: true,
+        accountId: true, categoryId: true, isInternalTransfer: true, isFixedExpense: true, internalTransferCounterAccountId: true,
         category: true,
-        account: true,
+        account: { select: { id: true, name: true } },
         importHistory: { select: { id: true, fileName: true } },
         planningGoals: { include: { goal: { select: { id: true, name: true, color: true, status: true } } }, orderBy: { createdAt: "asc" } },
-        reimbursementLinks: { include: { expense: { include: { account: true, category: true } } } },
-        reimbursedByLinks: { include: { reimbursement: { include: { account: true, category: true } } } }
+        reimbursementLinks: { select: { expenseId: true, expense: { select: { id: true, date: true, concept: true, cleanDescription: true, amount: true, account: { select: { id: true, name: true } }, category: true } } } },
+        reimbursedByLinks: { select: { reimbursementId: true, reimbursement: { select: { concept: true, cleanDescription: true, amount: true } } } }
       },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,

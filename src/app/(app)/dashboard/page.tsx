@@ -6,7 +6,6 @@ import { DashboardPeriodSelector } from "@/components/dashboard-period-selector"
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
 import { formatCurrency } from "@/lib/format";
 import { type DashboardPeriod, type DashboardPeriodMode, getDashboardData } from "@/lib/finance";
-import { getPlanningGoalProgress } from "@/lib/planning";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
@@ -41,7 +40,7 @@ export default async function DashboardPage({ searchParams }: Props) {
     getDashboardData(userId, params?.accountId, period, periodMode),
     userId !== session.user.id && session.user.role === Role.ADMIN ? prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }) : null,
   ]);
-  const planningGoals = await getPlanningGoalProgress(userId, { dashboardOnly: true, accountId: data.selectedAccount?.id, range: { start: data.range.start ? new Date(data.range.start) : null, end: data.range.end ? new Date(data.range.end) : null, label: data.periodLabel }, targetMultiplier: data.targetMultiplier });
+  const planningGoals = data.planning;
 
   const displayName = owner?.name ?? session.user.name;
   const scopeLabel = owner ? owner.email : data.selectedAccount ? data.selectedAccount.name : "Todas las cuentas";

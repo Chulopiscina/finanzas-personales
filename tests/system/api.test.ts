@@ -89,8 +89,33 @@ describe.skipIf(!app)("HTTP real: login, autorización, transferencias y sesione
     expect((await call(path, "PATCH", { expenseIds: [] })).status).toBe(200);
     expect(await db.transactionReimbursement.count({ where: { reimbursementId: refund.id } })).toBe(0);
   });
+  it("webhook sin cookies, lectura privada, límite de tamaño y conciliación manual de retención", async () => {
+    expect((await call("/api/integrations/shortcuts/devices", "POST", { name: "Ajena", accountId: foreignAccount })).status).toBe(400);
+    const response = await call("/api/integrations/shortcuts/devices", "POST", { name: "iPhone HTTP", accountId: accountA });
+    expect(response.status).toBe(200); expect(response.headers.get("cache-control")).toContain("no-store");
+    const created = await response.json();
+    const body = { eventId: randomUUID(), body: "Preautorización gasolina 100,00 €", occurredAt: "2026-06-19", merchant: "Gasolinera" };
+    const webhook = (value: object, authorization = "Bearer " + created.token) => fetch(app + "/api/integrations/shortcuts/events", { method: "POST", headers: { "Content-Type": "application/json", Authorization: authorization }, body: JSON.stringify(value) });
+    expect((await webhook(body, "invalid")).status).toBe(401);
+    const accepted = await webhook(body); expect(accepted.status).toBe(202); const event = await accepted.json();
+    expect((await webhook(body)).status).toBe(200);
+    expect((await webhook({ ...body, body: "x".repeat(17000) })).status).toBe(413);
+    expect((await fetch(app + "/api/integrations/shortcuts/inbox?id=" + event.id, { headers: { Authorization: "Bearer " + created.token } })).status).toBe(401);
+    const charge = await db.transaction.create({ data: { userId: a, accountId: accountA, date: new Date("2026-06-20"), concept: "Gasolinera definitivo", amount: -40, type: "EXPENSE", sourceHash: randomUUID() } });
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "link", transactionId: charge.id })).status).toBe(400);
+    const otherCharge = await db.transaction.create({ data: { userId: b, accountId: foreignAccount, date: new Date(), concept: "Privada", amount: -40, type: "EXPENSE", sourceHash: randomUUID() } });
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "link", transactionId: otherCharge.id, confirmed: true })).status).toBe(400);
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "link", transactionId: charge.id, confirmed: true })).status).toBe(200);
+    expect(Number((await db.transaction.findUniqueOrThrow({ where: { id: charge.id } })).amount)).toBe(-40);
+    expect((await db.bankNotification.findUniqueOrThrow({ where: { id: event.id } })).transactionId).toBe(charge.id);
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "unlink" })).status).toBe(200);
+    expect((await call("/api/integrations/shortcuts/devices", "DELETE", { id: created.device.id })).status).toBe(200);
+    expect((await webhook({ ...body, eventId: randomUUID() })).status).toBe(401);
+  });
   it("invalida la sesión anterior al cambiar contraseña", async () => {
+    const created = await (await call("/api/integrations/shortcuts/devices", "POST", { name: "Password revocation", accountId: accountA })).json();
     expect((await call("/api/profile", "PATCH", { currentPassword: password, newPassword: "New-" + randomUUID() + "A1" })).status).toBe(200);
     expect((await call("/api/auth/me")).status).toBe(401);
+    expect((await db.shortcutDevice.findUniqueOrThrow({ where: { id: created.device.id } })).revokedAt).not.toBeNull();
   });
 });

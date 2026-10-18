@@ -1,7 +1,7 @@
 import { PlanningManager } from "@/components/planning-manager";
 import { getSessionUser } from "@/lib/auth";
 import { ensureDefaultAccount, toNumber } from "@/lib/finance";
-import { getPlanningGoalProgress } from "@/lib/planning";
+import { getPlanningGoalProgress, planningRelations } from "@/lib/planning";
 import { prisma } from "@/lib/prisma";
 
 function dateInput(value: Date | null) {
@@ -14,17 +14,20 @@ export default async function PlanningPage() {
     return null;
   }
 
-  await ensureDefaultAccount(session.user.id);
-  const [goals, progress, accounts, categories] = await Promise.all([
+  const [goals, accounts, categories] = await Promise.all([
     prisma.planningGoal.findMany({
       where: { userId: session.user.id },
-      include: { categories: true },
+      include: planningRelations,
       orderBy: [{ status: "asc" }, { createdAt: "desc" }]
     }),
-    getPlanningGoalProgress(session.user.id, { includeArchived: true }),
     prisma.account.findMany({ where: { userId: session.user.id, isArchived: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ where: { OR: [{ userId: null }, { userId: session.user.id }], isArchived: false }, orderBy: { name: "asc" }, select: { id: true, name: true, color: true } })
   ]);
+  if (!accounts.length) {
+    const account = await ensureDefaultAccount(session.user.id);
+    if (!account.isArchived) accounts.push({ id: account.id, name: account.name });
+  }
+  const progress = await getPlanningGoalProgress(session.user.id, { includeArchived: true, preloaded: { goals }, movementLimit: 12 });
 
   const progressById = new Map(progress.map((item) => [item.id, item]));
   const preparedGoals = goals.map((goal) => {
@@ -47,6 +50,7 @@ export default async function PlanningPage() {
       categoryNames: item?.categoryNames ?? [],
       automaticMovementCount: item?.automaticMovementCount ?? 0,
       manualMovementCount: item?.manualMovementCount ?? 0,
+      movementCount: item?.movementCount ?? 0,
       movements: item?.movements ?? [],
       color: goal.color ?? "#14b8a6",
       icon: goal.icon ?? "target",

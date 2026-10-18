@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { assertPasswordStrength, hashPassword, requireUser, verifyPassword, destroyCurrentSession } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
+import { shortcutsEnabled } from "@/lib/shortcuts";
 
 type ProfileBody = {
   name?: string;
@@ -42,6 +43,7 @@ export async function PATCH(request: Request) {
       select: { id: true, name: true, email: true, role: true, lastLoginAt: true }
       });
       if (data.passwordHash) await tx.session.deleteMany({ where: { userId: session.user.id } });
+      if (data.passwordHash && shortcutsEnabled()) await tx.shortcutDevice.updateMany({ where: { userId: session.user.id, revokedAt: null }, data: { revokedAt: new Date() } });
       return updated;
     });
     if (data.passwordHash) await destroyCurrentSession();

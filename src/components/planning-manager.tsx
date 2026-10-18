@@ -50,6 +50,7 @@ type PlanningGoalRow = {
   categoryNames: string[];
   automaticMovementCount: number;
   manualMovementCount: number;
+  movementCount: number;
   movements: GoalMovement[];
   color: string;
   icon: string;
@@ -236,7 +237,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
   }
 
   async function deleteGoal(goal: PlanningGoalRow) {
-    const warning = goal.movements.length > 0
+    const warning = goal.movementCount > 0
       ? "Este objetivo tiene movimientos asociados o detectados. Esta acción eliminará el objetivo, pero no eliminará los movimientos asociados."
       : "Esta acción eliminará el objetivo, pero no eliminará ningún movimiento.";
     const confirmed = window.confirm(`${warning}\n\n¿Eliminar definitivamente este objetivo?`);
@@ -365,7 +366,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
                                 </div>
                               </div>
                             ))}
-                            {goal.movements.length > 12 ? <p className="bg-card px-3 py-2 text-xs text-muted-foreground">Mostrando 12 de {goal.movements.length} movimientos.</p> : null}
+                            {goal.movementCount > 12 ? <p className="bg-card px-3 py-2 text-xs text-muted-foreground">Mostrando 12 de {goal.movementCount} movimientos.</p> : null}
                           </div>
                         )}
                       </div>

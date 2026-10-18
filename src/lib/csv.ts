@@ -2,7 +2,8 @@ import { InputError } from "@/lib/input-error";
 import { createHash } from "node:crypto";
 import { TransactionType } from "@prisma/client";
 import Papa from "papaparse";
-import { isPayrollText, payrollClassification } from "@/lib/payroll";
+import { excludesPayroll, isPayrollText, payrollClassification } from "@/lib/payroll";
+import { bankText, cleanBankDescription, multilingualCategory } from "@/lib/bank-text";
 
 export type ParsedMovement = {
   date: Date;
@@ -13,6 +14,7 @@ export type ParsedMovement = {
   categoryName: string;
   sourceHash: string;
   raw: Record<string, string>;
+  cleanDescription?: string;
 };
 
 const CATEGORY_NAMES = {
@@ -74,35 +76,30 @@ function toRaw(row: Record<string, unknown>) {
 }
 
 export function parseSpanishAmount(value: string) {
-  let cleaned = value
-    .replace(/\s/g, "")
-    .replace(/"/g, "")
-    .replace(/\+/g, "")
-    .replace(/[^\d,.-]/g, "");
-
-  if (!cleaned) {
-    return NaN;
-  }
-
-  const negative = cleaned.startsWith("-") || cleaned.endsWith("-");
-  cleaned = cleaned.replace(/-/g, "");
-
-  const commaIndex = cleaned.lastIndexOf(",");
-  const dotIndex = cleaned.lastIndexOf(".");
-  let normalized = cleaned;
-
-  if (commaIndex !== -1 && dotIndex !== -1) {
-    normalized = commaIndex > dotIndex
-      ? cleaned.replace(/\./g, "").replace(",", ".")
-      : cleaned.replace(/,/g, "");
-  } else if (commaIndex !== -1) {
+  let cleaned = value.normalize("NFKC").trim().replace(/[−–]/g, "-");
+  const parentheses = /^\(.+\)$/.test(cleaned);
+  if (parentheses) cleaned = cleaned.slice(1, -1);
+  cleaned = cleaned.trim().replace(/^(?:EUR|€)\s*/i, "").replace(/\s*(?:EUR|€)$/i, "").trim();
+  if (parentheses && /^[+-]/.test(cleaned)) return NaN;
+  if (/\d\s+\d/.test(cleaned) && !/^[+-]?\d{1,3}(?:\s\d{3})+(?:[.,]\d{1,2})?-?$/.test(cleaned)) return NaN;
+  cleaned = cleaned.replace(/\s/g, "");
+  if (!/^[+-]?\d[\d.,]*-?$/.test(cleaned) || /[+-].*-/.test(cleaned)) return NaN;
+  const negative = parentheses || cleaned.startsWith("-") || cleaned.endsWith("-");
+  cleaned = cleaned.replace(/^[+-]|-$/g, "");
+  const comma = cleaned.lastIndexOf(","), dot = cleaned.lastIndexOf(".");
+  let normalized: string;
+  if (comma >= 0 && dot >= 0) {
+    const decimal = comma > dot ? "," : ".", grouping = decimal === "," ? "." : ",";
+    const parts = cleaned.split(decimal);
+    if (parts.length !== 2 || !/^\d{1,2}$/.test(parts[1]) || !new RegExp("^\\d{1,3}(?:\\" + grouping + "\\d{3})+$").test(parts[0])) return NaN;
+    normalized = parts[0].split(grouping).join("") + "." + parts[1];
+  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(cleaned)) normalized = cleaned.replace(/\./g, "");
+  else {
+    if (!/^\d+(?:[.,]\d{1,2})?$/.test(cleaned)) return NaN;
     normalized = cleaned.replace(",", ".");
-  } else if (/^\d{1,3}(?:\.\d{3})+$/.test(cleaned)) {
-    normalized = cleaned.replace(/\./g, "");
   }
-
   const amount = Number(normalized);
-  return negative ? -amount : amount;
+  return Number.isFinite(amount) && amount < 10_000_000_000 ? (negative ? -amount : amount) : NaN;
 }
 
 export function parseSpanishDate(value: string) {
@@ -120,7 +117,7 @@ export function parseSpanishDate(value: string) {
   const isoDay = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:T|$)/);
   if (!isoDay) throw new InputError(`Fecha inválida: ${value}`);
   const checked = new Date(Date.UTC(Number(isoDay[1]), Number(isoDay[2]) - 1, Number(isoDay[3])));
-  if (checked.getUTCMonth() !== Number(isoDay[2]) - 1 || checked.getUTCDate() !== Number(isoDay[3])) throw new InputError(`Fecha inválida: ${value}`);
+  if (checked.getUTCFullYear() !== Number(isoDay[1]) || checked.getUTCMonth() !== Number(isoDay[2]) - 1 || checked.getUTCDate() !== Number(isoDay[3])) throw new InputError(`Fecha inválida: ${value}`);
   const iso = new Date(cleaned);
   if (!Number.isNaN(iso.getTime())) {
     return checked;
@@ -134,18 +131,16 @@ export function hashValue(value: string) {
 }
 
 export function classify(concept: string, amount: number) {
+  const normalized = bankText(concept);
   const transferRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.transfers);
   const payrollRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.payroll);
 
-  if (amount > 0 && (isPayrollText(concept) || payrollRule?.[1].test(concept))) {
+  if (amount > 0 && !excludesPayroll(concept) && (isPayrollText(concept) || payrollRule?.[1].test(concept))) {
     return payrollClassification();
   }
 
-  if (transferRule?.[1].test(concept)) {
-    return { categoryName: CATEGORY_NAMES.transfers, type: amount >= 0 ? TransactionType.INCOME : TransactionType.EXPENSE };
-  }
-
-  const matched = categoryRules.find(([, rule]) => rule.test(concept));
+  // Merchant/sector evidence is more useful than a generic transfer prefix.
+  const matched = categoryRules.find(([name, rule]) => name !== CATEGORY_NAMES.transfers && name !== CATEGORY_NAMES.payroll && rule.test(normalized));
   if (matched) {
     return {
       categoryName: matched[0],
@@ -153,8 +148,11 @@ export function classify(concept: string, amount: number) {
     };
   }
 
+  const multilingual = multilingualCategory(concept);
+  if (multilingual || transferRule?.[1].test(normalized)) return { categoryName: multilingual ?? CATEGORY_NAMES.transfers, type: amount >= 0 ? TransactionType.INCOME : TransactionType.EXPENSE };
+
   return {
-    categoryName: amount >= 0 ? CATEGORY_NAMES.transfers : CATEGORY_NAMES.other,
+    categoryName: CATEGORY_NAMES.other,
     type: amount >= 0 ? TransactionType.INCOME : TransactionType.EXPENSE
   };
 }
@@ -192,6 +190,13 @@ function isTradeRepublicCsv(rows: Record<string, unknown>[]) {
   return ["datetime", "date", "amount", "currency", "transaction id"].every((header) => headers.includes(header));
 }
 
+function requireSettledRow(row: Record<string, unknown>, index: number) {
+  const status = bankText(pick(row, ["estado", "estat", "status", "estado de la operacion", "transaction status"]));
+  if (/\b(pending|pendent|pendiente|preautorizado|preautoritzat|retencion|retencio|cancelled|canceled|cancelado|anulado|anullat|reversed|failed)\b/.test(status)) {
+    throw new InputError(`La fila ${index + 2} está pendiente o anulada. Exporta únicamente movimientos confirmados; no se importará parcialmente.`);
+  }
+}
+
 export function parseTradeRepublicCsv(text: string) {
   const rows = parseCsvRows(text);
   if (rows.length === 0) {
@@ -203,11 +208,13 @@ export function parseTradeRepublicCsv(text: string) {
   }
 
   return rows.map((row, index) => {
+    requireSettledRow(row, index);
     const dateValue = pick(row, ["date", "datetime"]);
     const amountValue = pick(row, ["amount"]);
     const name = pick(row, ["name"]);
     const description = pick(row, ["description"]);
     const typeValue = pick(row, ["type"]);
+    if (!/^EUR$/i.test(pick(row, ["currency"]))) throw new InputError(`La fila ${index + 2} no está en EUR. No se convierten divisas automáticamente.`);
     const transactionId = pick(row, ["transaction id", "transaction id"]);
     const concept = [name, description || typeValue].filter(Boolean).join(" - ").trim();
 
@@ -227,6 +234,7 @@ export function parseTradeRepublicCsv(text: string) {
       concept,
       amount,
       balance: null,
+      cleanDescription: cleanBankDescription(concept),
       type: classification.type,
       categoryName: classification.categoryName,
       sourceHash: hashValue(normalizedKey(date, concept, amount, null, transactionId || undefined)),
@@ -239,16 +247,19 @@ export function parseBBVACsv(text: string) {
   const rows = parseCsvRows(text);
 
   return rows.map((row, index) => {
-    const dateValue = pick(row, ["fecha", "fecha operacion", "fecha de operacion", "f operacion"]);
+    requireSettledRow(row, index);
+    const dateValue = pick(row, ["fecha", "fecha operacion", "fecha de operacion", "f operacion", "data", "data operacio", "data d operacio", "data de l operacio", "booking date", "date"]);
     const concept = pick(row, [
       "concepto",
       "descripcion",
       "descripcion ampliada",
       "movimiento",
-      "operacion"
+      "operacion", "concepte", "concepte ampliat", "descripcio", "descripcio ampliada", "description", "details", "transaction description"
     ]);
-    const amountValue = pick(row, ["importe", "cantidad", "monto"]);
-    const balanceValue = pick(row, ["saldo", "saldo disponible", "saldo contable"]);
+    const amountValue = pick(row, ["importe", "importe eur", "cantidad", "monto", "import", "import eur", "amount", "amount eur"]);
+    const balanceValue = pick(row, ["saldo", "saldo disponible", "saldo contable", "balance", "running balance"]);
+    const currency = pick(row, ["moneda", "divisa", "currency"]);
+    if (currency && !/^(EUR|€)$/i.test(currency)) throw new InputError(`Moneda no compatible en la fila ${index + 2}. No se convierten divisas automáticamente.`);
 
     if (!dateValue || !concept || !amountValue) {
       throw new InputError(`Faltan columnas obligatorias en la fila ${index + 2}.`);
@@ -258,17 +269,19 @@ export function parseBBVACsv(text: string) {
     const amount = parseSpanishAmount(amountValue);
     const balance = balanceValue ? parseSpanishAmount(balanceValue) : null;
 
-    if (!Number.isFinite(amount)) {
+    if (!Number.isFinite(amount) || (balance !== null && !Number.isFinite(balance))) {
       throw new InputError(`Importe inv\u00e1lido en la fila ${index + 2}.`);
     }
 
-    const classification = classify(concept, amount);
+    const hints = pick(row, ["categoria", "category", "sector", "subcategoria", "merchant category"]);
+    const classification = classify([concept, hints].filter(Boolean).join(" "), amount);
 
     return {
       date,
       concept,
       amount,
-      balance: balance === null || Number.isNaN(balance) ? null : balance,
+      balance,
+      cleanDescription: cleanBankDescription(concept),
       type: classification.type,
       categoryName: classification.categoryName,
       sourceHash: hashValue(normalizedKey(date, concept, amount, balance)),

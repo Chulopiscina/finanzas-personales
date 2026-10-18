@@ -1,5 +1,6 @@
 import { InputError } from "@/lib/input-error";
 import { classify, hashValue, parseSpanishAmount, parseSpanishDate, type ParsedMovement } from "@/lib/csv";
+import { bankText } from "@/lib/bank-text";
 
 type PdfStatementContext = {
   year: number | null;
@@ -9,12 +10,12 @@ type PdfStatementContext = {
 const fullDatePattern = /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/;
 const fullDateAtStartPattern = /^\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/;
 const shortDateRowPattern = /^\s*(\d{1,2})[/-](\d{1,2})\s+(\d{1,2})[/-](\d{1,2})\b/;
-const moneyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}-?|[-+]?\d+,\d{2}-?|[-+]?\d+\.\d{2}-?/g;
-const moneyWithCurrencyPattern = /[-+]?\d{1,3}(?:\.\d{3})*,\d{2}\s*\u20ac|-?\d+,\d{2}\s*\u20ac|[-+]?\d+\.\d{2}\s*\u20ac/g;
+const moneyPattern = /(?<![\d.,])[-+]?(?:\d{1,3}(?:\.\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2})-?(?![\d.,])/g;
+const moneyWithCurrencyPattern = new RegExp(moneyPattern.source + "\\s*(?:€|EUR\\b)", "gi");
 const pdfNoiseLinePattern =
   /^(?:saldo\s+(?:anterior|inicial|final|actual|disponible)|total(?:es)?\b|resumen\b|extracto\b|titulares:?\b|f\.oper\b|fecha\s+de\s+emisi[o\u00f3]n\b|todos\s+los\s+importes\b|hoja\b|bic:?\b|euro\b|iban\b|--\s*\d+\s+of\s+\d+\s*--|S\d{6,}\b|F\d{5,}\b|BBVA\b|Banco Bilbao\b|www\.bbva\b|Atenci[o\u00f3]n\b)/i;
 const pdfNoiseInlinePattern =
-  /\s+(?:saldo\s+(?:anterior|inicial|final|actual|disponible)|total(?:es)?\b|resumen\b|extracto\b|titulares:?\b|f\.oper\b|fecha\s+de\s+emisi[o\u00f3]n\b|todos\s+los\s+importes\b|hoja\b|bic:?\b|euro\b|iban\b|--\s*\d+\s+of\s+\d+\s*--|S\d{6,}\b|F\d{5,}\b|BBVA\b|Banco Bilbao\b|www\.bbva\b|Atenci[o\u00f3]n\b).*/i;
+  /\s+(?:saldo\s+(?:anterior|inicial|final|actual|disponible)\s*:?\s*[-+]?\d|(?:opening|closing|final)\s+balance\s*:?\s*[-+]?\d|--\s*\d+\s+of\s+\d+\s*--|S\d{6,}\b|F\d{5,}\b).*/i;
 
 async function ensurePdfRuntime() {
   const globalWithDom = globalThis as Record<string, unknown>;
@@ -35,7 +36,7 @@ async function ensurePdfRuntime() {
 }
 
 function normalizeLine(line: string) {
-  return line.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  return line.replace(/\u00a0/g, " ").replace(/[−–]/g, "-").replace(/\s+/g, " ").trim();
 }
 
 function normalizePdfText(text: string) {
@@ -60,7 +61,7 @@ function isMovementStart(line: string) {
 
 function isPdfNoiseLine(line: string) {
   const normalized = normalizeLine(line);
-  return !normalized || pdfNoiseLinePattern.test(normalized);
+  return !normalized || pdfNoiseLinePattern.test(normalized) || /^(?:(?:opening|closing|initial|final) balance\b|resum de moviments\b|extracte bancari\b|pagina \d+\b|page \d+\b|data concepte import saldo\b)/.test(bankText(normalized));
 }
 
 function buildRecords(lines: string[]) {
@@ -203,12 +204,12 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
 
   const { date, rest } = parsedDate;
   const moneyMatches = [...rest.matchAll(moneyPattern)];
-  if (moneyMatches.length === 0) {
-    return null;
-  }
+  if (moneyMatches.length < 2) throw new InputError(`Falta el importe o el saldo de la fila PDF ${index + 1}. No se utilizarán totales de página como sustitutos.`);
 
-  const amountMatch = moneyMatches.length >= 2 ? moneyMatches[moneyMatches.length - 2] : moneyMatches[0];
-  const balanceMatch = moneyMatches.length >= 2 ? moneyMatches[moneyMatches.length - 1] : null;
+  const amountMatch = moneyMatches[moneyMatches.length - 2];
+  const balanceMatch = moneyMatches[moneyMatches.length - 1];
+  const between = rest.slice(amountMatch.index! + amountMatch[0].length, balanceMatch.index);
+  if (!/^\s*(?:€|EUR)?\s*$/i.test(between)) throw new InputError(`Columnas monetarias ambiguas en la fila PDF ${index + 1}.`);
 
   if (amountMatch.index === undefined) {
     return null;
@@ -226,7 +227,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
     throw new InputError(`Importe invalido en el movimiento PDF ${index + 1}.`);
   }
 
-  const classification = classify(concept, amount);
+  const classification = classify(rest, amount);
 
   return {
     date,
@@ -254,7 +255,7 @@ function parseCaixaBankRecord(line: string, index: number): ParsedMovement | nul
     return null;
   }
 
-  const rowMatch = normalized.match(/^(.+?)\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})\s+([-+]?\d{1,3}(?:\.\d{3})*,\d{2}|[-+]?\d+,\d{2})\s*€\s+([-+]?\d{1,3}(?:\.\d{3})*,\d{2}|[-+]?\d+,\d{2})\s*€$/i);
+  const rowMatch = normalized.match(new RegExp("^(.+?)\\s+(\\d{1,2}[/-]\\d{1,2}[/-]\\d{4})\\s+(" + moneyPattern.source + ")\\s*(?:€|EUR)\\s+(" + moneyPattern.source + ")\\s*(?:€|EUR)$", "i"));
   if (!rowMatch) {
     return null;
   }
@@ -292,7 +293,7 @@ export function parseCaixaBankPdfText(text: string) {
   const movements = lines
     .map((line, index) => {
       const movement = parseCaixaBankRecord(line, index);
-      if (!movement && fullDatePattern.test(line) && /€/.test(line) && !/^(Periodo|Saldo|Fecha|IBAN)/i.test(line)) throw new InputError(`No se pudo leer completamente la fila ${index + 1} del extracto CaixaBank. No se importará parcialmente.`);
+      if (!movement && fullDatePattern.test(line) && /€|\bEUR\b/.test(line) && !/^(Periodo|Saldo|Fecha|IBAN)/i.test(line)) throw new InputError(`No se pudo leer completamente la fila ${index + 1} del extracto CaixaBank. No se importará parcialmente.`);
       return movement;
     })
     .filter((movement): movement is ParsedMovement => movement !== null);

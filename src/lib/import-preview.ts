@@ -4,6 +4,8 @@ import { parseBBVACsv, parseTradeRepublicCsv, type ParsedMovement } from "@/lib/
 import { extractPdfText, parseBBVAPdfText, parseCaixaBankPdfText, parseINGPdfText } from "@/lib/pdf";
 import { cents, sumMoney, addMoney } from "@/lib/money";
 import { parseSpanishAmount } from "@/lib/csv";
+import { cleanBankDescription } from "@/lib/bank-text";
+import { decodeBankCsv } from "@/lib/import-file";
 
 export type ImportBankFormat = "AUTO" | "BBVA" | "TRADE_REPUBLIC" | "ING" | "CAIXABANK" | "UNSUPPORTED";
 export type ImportValidationStatus = "correcto" | "aviso" | "error";
@@ -12,6 +14,7 @@ export type ImportConfidence = "alta" | "media" | "baja";
 export type SerializedPreviewMovement = {
   date: string;
   concept: string;
+  cleanDescription?: string;
   amount: number;
   balance: number | null;
   type: TransactionType;
@@ -69,6 +72,7 @@ function serializeMovement(movement: ParsedMovement): SerializedPreviewMovement 
   return {
     date: movement.date.toISOString(),
     concept: movement.concept,
+    cleanDescription: movement.cleanDescription ?? cleanBankDescription(movement.concept),
     amount: Number(movement.amount),
     balance: movement.balance === null || Number.isNaN(movement.balance) ? null : Number(movement.balance),
     type: movement.type,
@@ -82,6 +86,7 @@ export function deserializePreviewMovement(movement: SerializedPreviewMovement):
   return {
     date: new Date(movement.date),
     concept: movement.concept,
+    cleanDescription: movement.cleanDescription ?? cleanBankDescription(movement.concept),
     amount: movement.amount,
     balance: movement.balance,
     type: movement.type,
@@ -99,8 +104,8 @@ export function extractDeclaredBalances(text: string) {
     return Number.isFinite(amount) ? amount : null;
   };
   return {
-    opening: find(/saldo\s+(?:inicial|anterior)\s*:?\s*([-+]?\d[\d.]*,\d{2})/gi),
-    closing: find(/saldo\s+(?:final|actual|disponible)\s*:?\s*([-+]?\d[\d.]*,\d{2})/gi, true)
+    opening: find(/(?:saldo\s+(?:inicial|anterior)|opening\s+balance|initial\s+balance)\s*:?\s*([-+]?\d[\d.,]*\d)/gi),
+    closing: find(/(?:saldo\s+(?:final|actual|disponible)|closing\s+balance|final\s+balance)\s*:?\s*([-+]?\d[\d.,]*\d)/gi, true)
   };
 }
 
@@ -136,13 +141,13 @@ export function validateBalances(movements: ParsedMovement[], declared = { openi
 }
 
 async function parseCsv(buffer: Buffer, forcedFormat: ImportBankFormat) {
-  const text = buffer.toString("utf8");
+  const text = decodeBankCsv(buffer);
   if (forcedFormat === "TRADE_REPUBLIC") {
     return { format: "TRADE_REPUBLIC" as const, movements: parseTradeRepublicCsv(text) };
   }
 
-  if (forcedFormat === "BBVA") {
-    return { format: "BBVA" as const, movements: parseBBVACsv(text) };
+  if (["BBVA", "ING", "CAIXABANK"].includes(forcedFormat)) {
+    return { format: forcedFormat, movements: parseBBVACsv(text) };
   }
 
   try {

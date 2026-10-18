@@ -3,13 +3,10 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { jsonError } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
+import { originalFile } from "@/lib/import-file";
 
 function downloadBody(fileContent: string, mimeType: string | null) {
-  if (mimeType?.includes("pdf")) {
-    return Buffer.from(fileContent, "base64");
-  }
-
-  return fileContent;
+  return originalFile(fileContent, mimeType);
 }
 
 function safeFileName(fileName: string) {

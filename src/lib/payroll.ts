@@ -1,5 +1,6 @@
 import { CategoryType, TransactionType, type Category } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { bankText } from "@/lib/bank-text";
 
 export const PAYROLL_CATEGORY_NAME = "N\u00f3mina";
 export const PAYROLL_CATEGORY_STYLE = {
@@ -9,18 +10,17 @@ export const PAYROLL_CATEGORY_STYLE = {
 };
 
 export function normalizePayrollText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return bankText(value);
 }
 
 export function isPayrollText(value: string) {
   const normalized = normalizePayrollText(value);
-  return /\b(nomina|nominas|nomines)\b/.test(normalized) ||
+  return /\b(nomina|nominas|nomines|salari|salario|salarios|salary|payroll|wages|haberes)\b/.test(normalized) ||
     /\b(abono de nomina|transferencia nomina)\b/.test(normalized);
+}
+
+export function excludesPayroll(value: string) {
+  return /\b(bizum|reembolso|reemborsament|refund|efectivo|efectiu|cash|transferencia interna|internal transfer|traspaso|traspas|traspassos)\b/.test(bankText(value));
 }
 
 export function isPayrollCategoryName(value: string | null | undefined) {

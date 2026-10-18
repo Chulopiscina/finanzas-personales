@@ -104,6 +104,8 @@ model User {
   planningGoals    PlanningGoal[]
   recurringPayments RecurringPayment[]
   monthlyBudgets MonthlyBudget[]
+  shortcutDevices ShortcutDevice[]
+  bankNotifications BankNotification[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -127,6 +129,8 @@ model Account {
   planningGoals PlanningGoal[]
   recurringPayments RecurringPayment[]
   monthlyBudgets MonthlyBudget[]
+  shortcutDevices ShortcutDevice[]
+  bankNotifications BankNotification[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -177,6 +181,7 @@ model Transaction {
   planningGoals   PlanningGoalTransaction[]
   reimbursementLinks TransactionReimbursement[] @relation("ReimbursementIncome")
   reimbursedByLinks   TransactionReimbursement[] @relation("ReimbursementExpense")
+  bankNotification BankNotification?
   sourceHash      String
   raw             Json?
   createdAt       DateTime        @default(now())
@@ -389,4 +394,57 @@ model LoginRateLimit {
   expiresAt DateTime
 
   @@index([expiresAt])
+}
+
+// A device can only submit provisional events to its single, explicitly chosen account.
+model ShortcutDevice {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId String
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  name String
+  tokenHash String @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+  windowStart DateTime @default(now())
+  windowCount Int @default(0)
+  createdAt DateTime @default(now())
+  events BankNotification[]
+
+  @@index([userId, createdAt])
+}
+
+// Separate inbox: notifications never contribute to balances or financial calculations.
+model BankNotification {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId String
+  device ShortcutDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  accountId String
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  eventId String
+  title String?
+  subtitle String?
+  body String
+  sourceApp String?
+  rawPayload Json
+  receivedAt DateTime @default(now())
+  occurredAt DateTime?
+  amount Decimal? @db.Decimal(12, 2)
+  currency String?
+  merchant String?
+  bankReference String?
+  categoryName String?
+  confidence String
+  reason String
+  status String @default("REVIEW")
+  transactionId String? @unique
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@unique([deviceId, eventId])
+  @@index([userId, accountId, status, occurredAt])
+  @@index([userId, receivedAt])
 }

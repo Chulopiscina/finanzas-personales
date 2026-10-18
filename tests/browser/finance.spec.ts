@@ -5,8 +5,13 @@ test("login, dashboard, movimientos paginados y móvil", async ({ page }, info) 
   await page.goto("/login");
   await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);
   await page.getByLabel("Contraseña", { exact: true }).fill(process.env.E2E_PASSWORD!);
+  const started = performance.now();
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
+  const timing = { viewport: info.project.name, elapsedMs: Math.round(performance.now() - started), note: "Servidor y navegador locales; incluye bcrypt/login, no es iPhone físico ni Supabase." };
+  console.info("Local login-dashboard:", timing);
+  await info.attach("login-dashboard-timing", { body: JSON.stringify(timing), contentType: "application/json" });
+  await page.getByRole("heading", { name: "Gráficos", exact: true }).scrollIntoViewIfNeeded();
   await expect(page.locator(".recharts-sector").first()).toBeVisible();
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -24,6 +29,64 @@ test("login, dashboard, movimientos paginados y móvil", async ({ page }, info) 
   await page.screenshot({ path: info.outputPath("movements.png"), fullPage: true });
   expect(errors).toEqual([]);
 });
+
+test("Atajos: credencial privada, bandeja provisional y conciliación manual", async ({ page }, info) => {
+  await page.goto("/login");
+  await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);
+  await page.getByLabel("Contraseña", { exact: true }).fill(process.env.E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú" }).click();
+  await page.getByRole("link", { name: "Notificaciones", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Notificaciones", exact: true })).toBeVisible();
+  await page.getByLabel("Nombre", { exact: true }).fill("iPhone navegador " + info.project.name);
+  await page.getByLabel("Cuenta", { exact: true }).selectOption({ label: "Cuenta de prueba" });
+  await page.getByRole("button", { name: "Crear credencial" }).click();
+  await expect(page.locator("code")).toBeVisible();
+  const token = await page.locator("code").innerText();
+  const response = await page.request.post("/api/integrations/shortcuts/events", { headers: { Authorization: "Bearer " + token }, data: { eventId: crypto.randomUUID(), body: "Preautorización gasolina 100,00 EUR " + info.project.name, occurredAt: "2026-06-19" } });
+  expect(response.status()).toBe(202);
+  await page.getByRole("button", { name: "Ocultar", exact: true }).click();
+  await page.reload();
+  const event = page.locator("li").filter({ hasText: "Preautorización gasolina 100,00 EUR " + info.project.name });
+  await expect(event.getByText("Retención", { exact: true })).toBeVisible();
+  await event.getByRole("button", { name: "Conciliar", exact: true }).click();
+  const modal = page.getByRole("dialog");
+  await modal.getByLabel("Buscar movimiento definitivo").fill("Compra de prueba");
+  await modal.getByRole("button", { name: "Buscar", exact: true }).click();
+  const select = modal.getByLabel("Movimiento definitivo", { exact: true });
+  await expect(select.locator("option").nth(1)).toBeAttached();
+  await select.selectOption((await select.locator("option").nth(1).getAttribute("value"))!);
+  await modal.getByRole("checkbox").check();
+  await modal.getByRole("button", { name: "Confirmar vínculo" }).click();
+  await expect(modal).toBeHidden();
+  await expect(event.getByText("Conciliada", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(event.getByText("Conciliada", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("notifications.png"), fullPage: true });
+});
+test("planificación conserva creación y edición verificadas tras guardar", async ({ page }, info) => {
+  await page.goto("/login");
+  await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);
+  await page.getByLabel("Contraseña", { exact: true }).fill(process.env.E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú" }).click();
+  await page.getByRole("link", { name: "Planificación", exact: true }).click();
+  const name = "Objetivo navegador " + info.project.name;
+  await page.getByPlaceholder("Nombre del objetivo").fill(name);
+  await page.getByLabel("Importe objetivo").fill("100");
+  await page.getByRole("button", { name: "Crear objetivo", exact: true }).click();
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  const article = page.locator("article").filter({ has: page.getByRole("heading", { name, exact: true }) });
+  await article.getByRole("button", { name: "Editar", exact: true }).click();
+  await page.getByLabel("Importe objetivo").nth(1).fill("200");
+  await page.getByRole("button", { name: "Guardar", exact: true }).click();
+  await expect(article.getByText("200,00", { exact: false }).first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test("manifest, iconos y ausencia de caché financiera offline", async ({ page, request }) => {
   const response = await request.get("/manifest.webmanifest"); expect(response.ok()).toBe(true);
   expect((await response.json()).display).toBe("standalone");

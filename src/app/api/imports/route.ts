@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { ensureDefaultAccount } from "@/lib/finance";
 import { analyzeImportFile, type ImportBankFormat, type ImportPreviewData } from "@/lib/import-preview";
 import { prisma } from "@/lib/prisma";
+import { storeOriginalFile } from "@/lib/import-file";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,10 +44,6 @@ function parseForcedFormat(value: FormDataEntryValue | null): ImportBankFormat {
     : "AUTO";
 }
 
-function storedFileContent(buffer: Buffer, isCsv: boolean) {
-  return isCsv ? buffer.toString("utf8") : buffer.toString("base64");
-}
-
 function previewResponse(historyId: string, accountName: string, preview: ImportPreviewData) {
   return {
     preview: {
@@ -64,6 +61,7 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const file = formData.get("file");
     const account = await resolveImportAccount(session.user.id, formData.get("accountId"));
+    if (account.currency !== "EUR") throw new InputError("El importador admite extractos en EUR. Selecciona una cuenta en EUR; no se convierten divisas automáticamente.");
     const forcedFormat = parseForcedFormat(formData.get("bankFormat"));
 
     if (!(file instanceof File)) {
@@ -85,7 +83,7 @@ export async function POST(request: NextRequest) {
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const fileHash = createHash("sha256").update(fileBuffer).digest("hex");
     const mimeType = file.type || (isPdf ? "application/pdf" : "text/csv");
-    const fileContent = storedFileContent(fileBuffer, isCsv);
+    const fileContent = storeOriginalFile(fileBuffer);
 
     let preview: ImportPreviewData;
     try {

@@ -14,11 +14,20 @@ function identity(movement: ExistingMovement) {
   return `${movement.date.toISOString().slice(0, 10)}|${cents(movement.amount)}|${normalizeDescription(movement.rawDescription || movement.concept)}`;
 }
 export function planImport(movements: ParsedMovement[], existing: ExistingMovement[]) {
-  const buckets = new Map<string, ExistingMovement[]>();
+  const buckets = new Map<string, Set<ExistingMovement>>();
+  const references = new Map<string, Set<ExistingMovement>>();
   const counts = new Map<string, number>();
+  const referenceKey = (movement: ExistingMovement, ref: string) => `${movement.date.toISOString().slice(0, 10)}|${cents(movement.amount)}|${ref}`;
   for (const movement of existing) {
     const key = identity(movement);
-    buckets.set(key, [...(buckets.get(key) ?? []), movement]);
+    const bucket = buckets.get(key) ?? new Set<ExistingMovement>();
+    bucket.add(movement);
+    buckets.set(key, bucket);
+    const ref = reference(movement.raw);
+    if (ref) {
+      const refKey = referenceKey(movement, ref), items = references.get(refKey) ?? new Set<ExistingMovement>();
+      items.add(movement); references.set(refKey, items);
+    }
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   const occurrences = new Map<string, number>();
@@ -26,15 +35,19 @@ export function planImport(movements: ParsedMovement[], existing: ExistingMoveme
   let duplicates = 0;
   for (const movement of movements) {
     const key = identity(movement);
-    const candidates = buckets.get(key) ?? [];
     const ref = reference(movement.raw);
-    const index = candidates.findIndex((candidate) => {
+    const candidates = ref ? new Set([...(references.get(referenceKey(movement, ref)) ?? []), ...(buckets.get(key) ?? [])]) : buckets.get(key) ?? new Set<ExistingMovement>();
+    let match: ExistingMovement | undefined;
+    for (const candidate of candidates) {
       const otherRef = reference(candidate.raw);
-      if (ref && otherRef && ref !== otherRef) return false;
-      return candidate.balance === null || movement.balance === null || cents(candidate.balance) === cents(movement.balance);
-    });
-    if (index >= 0) {
-      candidates.splice(index, 1);
+      if (ref && otherRef && ref !== otherRef) continue;
+      if (candidate.balance !== null && movement.balance !== null && cents(candidate.balance) !== cents(movement.balance)) continue;
+      match = candidate; break;
+    }
+    if (match) {
+      buckets.get(identity(match))?.delete(match);
+      const matchedRef = reference(match.raw);
+      if (matchedRef) references.get(referenceKey(match, matchedRef))?.delete(match);
       duplicates++;
       continue;
     }

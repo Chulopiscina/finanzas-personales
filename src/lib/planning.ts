@@ -1,8 +1,18 @@
-import { PlanningGoalType, PlanningPeriod, PlanningStatus, TransactionType, type Account, type Category, type PlanningGoal } from "@prisma/client";
+import { Prisma, PlanningGoalType, PlanningPeriod, PlanningStatus, TransactionType, type Account, type Category, type PlanningGoal } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/finance";
-import { accountingType, spendingEntries } from "@/lib/ledger";
+import { accountingType, spendingEntries, type LedgerMovement } from "@/lib/ledger";
 import { addMoney, cents, euros } from "@/lib/money";
+
+const toNumber = (value: unknown) => Number(value ?? 0);
+export const planningRelations = Prisma.validator<Prisma.PlanningGoalInclude>()({
+  account: { select: { name: true } }, categories: { include: { category: true } },
+  transactions: { select: { transactionId: true, includeInternalTransfer: true } }
+});
+type LoadedGoal = Prisma.PlanningGoalGetPayload<{ include: typeof planningRelations }>;
+type ProgressMovement = LedgerMovement & {
+  concept: string; cleanDescription: string | null;
+  account?: { name: string } | null;
+};
 
 export type PlanningGoalWithRelations = PlanningGoal & {
   account: Account | null;
@@ -58,6 +68,7 @@ export type PlanningGoalProgress = {
   hasData: boolean;
   automaticMovementCount: number;
   manualMovementCount: number;
+  movementCount: number;
   movements: PlanningGoalMovement[];
   tone: "success" | "warning" | "danger" | "neutral";
 };
@@ -139,13 +150,15 @@ function movementSource(isAutomatic: boolean, isManual: boolean): PlanningGoalMo
 export async function getPlanningGoalProgress(userId: string, options: {
   dashboardOnly?: boolean; includeArchived?: boolean; accountId?: string;
   range?: { start: Date | null; end: Date | null; label: string }; targetMultiplier?: number;
+  preloaded?: { goals: LoadedGoal[]; transactions?: ProgressMovement[] };
+  includeMovements?: boolean;
+  movementLimit?: number;
 } = {}) {
-  const goals = await prisma.planningGoal.findMany({
+  const goals = options.preloaded?.goals ?? await prisma.planningGoal.findMany({
     where: { userId, ...(options.includeArchived ? {} : { status: { not: PlanningStatus.ARCHIVED } }),
       ...(options.dashboardOnly ? { showInDashboard: true, status: PlanningStatus.ACTIVE } : {}),
       ...(options.accountId ? { OR: [{ accountId: options.accountId }, { accountId: null }] } : {}) },
-    include: { account: true, categories: { include: { category: true } },
-      transactions: { select: { transactionId: true, includeInternalTransfer: true } } },
+    include: planningRelations,
     orderBy: [{ status: "asc" }, { createdAt: "desc" }]
   });
   if (!goals.length) return [];
@@ -153,13 +166,15 @@ export async function getPlanningGoalProgress(userId: string, options: {
   const starts = ranges.map((range) => range.start?.getTime()).filter((date): date is number => date !== undefined);
   const ends = ranges.map((range) => range.end?.getTime()).filter((date): date is number => date !== undefined);
   const categories = [...new Set(goals.flatMap((goal) => goal.categories.map((item) => item.categoryId)))];
-  const transactions = await prisma.transaction.findMany({
+  const transactions = options.preloaded?.transactions ?? await prisma.transaction.findMany({
     where: { userId, ...(options.accountId ? { accountId: options.accountId } : {}), ...(options.dashboardOnly ? { account: { isArchived: false } } : {}),
       date: { ...(starts.length === ranges.length ? { gte: new Date(Math.min(...starts)) } : {}), ...(ends.length === ranges.length ? { lt: new Date(Math.max(...ends)) } : {}) },
       OR: [{ categoryId: { in: categories } }, { planningGoals: { some: { goalId: { in: goals.map((goal) => goal.id) } } } },
         { reimbursementLinks: { some: { expense: { OR: [{ categoryId: { in: categories } }, { planningGoals: { some: { goalId: { in: goals.map((goal) => goal.id) } } } }] } } } }] },
-    include: { category: true, account: { select: { name: true } },
-      reimbursementLinks: { include: { expense: { include: { category: true } } } } },
+    select: { id: true, date: true, concept: true, cleanDescription: true, amount: true, type: true,
+      accountId: true, categoryId: true, isFixedExpense: true, isInternalTransfer: true, internalTransferGroupId: true,
+      category: true, account: { select: { name: true } },
+      reimbursementLinks: { select: { expenseId: true, expense: { select: { id: true, date: true, amount: true, categoryId: true, isFixedExpense: true, isInternalTransfer: true, category: true } } } } },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "desc" }]
   });
   return goals.map((goal, index): PlanningGoalProgress => {
@@ -169,6 +184,7 @@ export async function getPlanningGoalProgress(userId: string, options: {
     const movements: PlanningGoalMovement[] = [];
     const groups = new Set<string>();
     let actualCents = 0;
+    let automaticCount = 0, manualCount = 0, movementCount = 0, hasData = false;
     for (const tx of transactions) {
       if ((range.start && tx.date < range.start) || (range.end && tx.date >= range.end) || (goal.accountId && tx.accountId !== goal.accountId)) continue;
       if (goal.period === PlanningPeriod.CUSTOM && ((goal.periodStart && tx.date < goal.periodStart) || (goal.periodEnd && tx.date >= new Date(goal.periodEnd.getTime() + 86_400_000)))) continue;
@@ -176,8 +192,12 @@ export async function getPlanningGoalProgress(userId: string, options: {
       const entries = spendingEntries(tx).filter((entry) => isManual || manual.has(entry.source.id) || categoryIds.has(entry.source.categoryId ?? ""));
       const automatic = !tx.isInternalTransfer && (categoryIds.has(tx.categoryId ?? "") || entries.length > 0);
       if (!automatic && !isManual) continue;
+      movementCount++;
       const includeInternalTransfer = manual.get(tx.id) === true;
       const counts = !tx.isInternalTransfer || includeInternalTransfer;
+      if (automatic) automaticCount++;
+      if (isManual) manualCount++;
+      if (counts) hasData = true;
       if (counts) {
         if (tx.isInternalTransfer) {
           const key = tx.internalTransferGroupId ?? tx.id;
@@ -187,7 +207,7 @@ export async function getPlanningGoalProgress(userId: string, options: {
           actualCents += entries.reduce((sum, entry) => sum + cents(entry.amount), 0);
         }
       }
-      movements.push({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount),
+      if (options.includeMovements !== false && movements.length < (options.movementLimit ?? Infinity)) movements.push({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount),
         type: accountingType(tx), accountName: tx.account?.name ?? null, categoryName: tx.category?.name ?? null,
         source: movementSource(automatic, isManual), isManual, isAutomatic: automatic, isInternalTransfer: tx.isInternalTransfer,
         includeInternalTransfer, countsInProgress: counts });
@@ -201,7 +221,7 @@ export async function getPlanningGoalProgress(userId: string, options: {
       difference: addMoney(target, -actual), progressPercent: target > 0 ? Math.round(actual / target * 100) : 0,
       status: goal.status, showInDashboard: goal.showInDashboard, color: goal.color, icon: goal.icon,
       accountName: goal.account?.name ?? null, categoryNames: goal.categories.map((item) => item.category.name), periodLabel: range.label,
-      hasData: movements.some((item) => item.countsInProgress), automaticMovementCount: movements.filter((item) => item.isAutomatic).length,
-      manualMovementCount: movements.filter((item) => item.isManual).length, movements, tone: toneFor(goal, actual, target) };
+      hasData, automaticMovementCount: automaticCount,
+      manualMovementCount: manualCount, movementCount, movements, tone: toneFor(goal, actual, target) };
   });
 }

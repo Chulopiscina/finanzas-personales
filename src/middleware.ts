@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/jwt";
 
-const privatePrefixes = ["/dashboard", "/movements", "/upload", "/statistics", "/profile", "/admin", "/accounts", "/categories", "/planning", "/statements"];
+const privatePrefixes = ["/dashboard", "/movements", "/upload", "/statistics", "/profile", "/admin", "/accounts", "/categories", "/planning", "/statements", "/notifications"];
 const adminPrefixes = ["/admin", "/api/admin"];
 
 function isPrivatePath(pathname: string) {
@@ -36,6 +36,8 @@ export async function middleware(request: NextRequest) {
   // Session validity is checked against the database in layouts and handlers.
   // Do not redirect /login solely on a JWT: the database session may be revoked.
   if (pathname === "/login") return NextResponse.next();
+  // This single write-only endpoint authenticates its own scoped bearer credential, never a cookie.
+  if (pathname === "/api/integrations/shortcuts/events" && request.method === "POST") return NextResponse.next();
 
   if (isApiPath(pathname) && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const origin = request.headers.get("origin");
@@ -84,6 +86,7 @@ export const config = {
     "/categories/:path*",
     "/planning/:path*",
     "/statements/:path*",
+    "/notifications/:path*",
     "/api/:path*"
   ]
 };

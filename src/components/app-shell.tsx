@@ -15,6 +15,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
+  Smartphone,
   Tags,
   Upload,
   UserRound,
@@ -40,7 +41,7 @@ const navItems = [
   { href: "/profile", label: "Perfil", icon: UserRound }
 ];
 
-export function AppShell({ user, children }: { user: SessionUser; children: React.ReactNode }) {
+export function AppShell({ user, children, shortcutsAvailable = false }: { user: SessionUser; children: React.ReactNode; shortcutsAvailable?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -88,13 +89,16 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
         </div>
 
         <nav className="mt-4 flex flex-1 flex-col gap-1.5">
-          {navItems.map((item) => {
+          {[...navItems, ...(shortcutsAvailable ? [{ href: "/notifications", label: "Notificaciones", icon: Smartphone }] : [])].map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                prefetch={false}
+                onMouseEnter={() => router.prefetch(item.href)}
+                onFocus={() => router.prefetch(item.href)}
                 onClick={() => setOpen(false)}
                 title={isCollapsed ? item.label : undefined}
                 className={cn(
@@ -112,6 +116,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           {user.role === "ADMIN" ? (
             <Link
               href="/admin"
+              prefetch={false}
               onClick={() => setOpen(false)}
               title={isCollapsed ? "Administración" : undefined}
               className={cn(

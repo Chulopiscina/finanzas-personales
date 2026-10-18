@@ -2,6 +2,8 @@
 
 Aplicación privada Next.js 15 / React 19 / TypeScript, Prisma 5 y PostgreSQL. Cuentas, movimientos, extractos CSV/PDF, reembolsos, objetivos, presupuestos y pagos recurrentes. Sin registro público ni sincronización bancaria.
 
+Guías de esta versión: [rendimiento y mediciones](docs/PERFORMANCE.md), [interpretación de extractos](docs/IMPORTS.md) y [Atajos de iPhone](docs/SHORTCUTS.md). La integración de notificaciones está desactivada por defecto y requiere migración autorizada; revisar primero la deuda de historial en [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Requisitos y arranque
 
 Node.js 24 y PostgreSQL. No utilizar una base de producción para desarrollar o ejecutar pruebas.
