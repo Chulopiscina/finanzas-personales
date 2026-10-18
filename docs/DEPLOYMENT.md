@@ -2,15 +2,17 @@
 
 ## Estado vigente (18/10/2026)
 
-Producción permanece en `327c7d3`. Según las verificaciones aportadas por el propietario, las 14 migraciones anteriores tienen sus cambios físicos, pero solo 11 constan en Prisma. No se ha conectado a producción en esta intervención.
+Producción se publicó en `73a5682` (Vercel Ready). Antes de publicar se contrastaron las estructuras y se reconciliaron las quince migraciones mediante Session pooler, esquema `app`; ninguna quedó incompleta. Atajos sigue desactivado. Esta nueva entrega es exclusivamente local y no ha conectado a producción.
 
-Deuda obligatoria **antes de cualquier migración futura**: contrastar y registrar exclusivamente estas tres mediante `prisma migrate resolve --applied <nombre>`, usando una conexión autorizada al esquema `app`; no repetir su SQL ni editar `_prisma_migrations`:
+Deuda anterior **resuelta, no repetir SQL ni registros**:
 
 - `20260706100000_performance_indexes` (8 índices comprobados).
 - `20260706120000_safe_import_preview` (8 columnas comprobadas).
 - `20261018130000_login_rate_limit` (tabla, PK, índice y RLS comprobados; rol postgres con permisos/bypass RLS comprobado por el propietario).
 
-Después, `npx prisma migrate status` debe mostrar sincronizadas esas 14 migraciones. El repositorio ahora prepara una **decimoquinta**: `20261018160000_shortcut_notification_inbox`. Crea únicamente `ShortcutDevice` y `BankNotification`, sus índices, claves foráneas y RLS. No modifica movimientos ni datos financieros existentes. **No se ha aplicado en producción y requiere autorización independiente**. No ejecutar `db:deploy` a ciegas con la deuda anterior sin resolver.
+También está aplicada y registrada `20261018160000_shortcut_notification_inbox`: ShortcutDevice, BankNotification, índices, claves foráneas y RLS. Estado de partida: **15/15 sincronizadas**.
+
+Este cambio añade la **decimosexta**, `20261018210000_shortcut_guided_pairing`: crea ShortcutPairing (con RLS) y añade una columna nullable lastVerifiedAt a ShortcutDevice. No altera movimientos ni datos financieros. **Pendiente de revisión/autorización y aplicación en producción**; solo probada en BD local aislada. Antes de activarla seguir [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md), publicar/verificar el atajo Apple y configurar su enlace iCloud real. No repetir SQL de migraciones antiguas ni editar `_prisma_migrations`.
 
 La integración está desactivada por defecto (`SHORTCUTS_ENABLED=false`): dashboard, login e importación no consultan sus nuevas tablas. Mantenerla así hasta aplicar la migración autorizada, verificar permisos del rol Prisma y probar en staging. No hay políticas de acceso directo del navegador a la bandeja.
 

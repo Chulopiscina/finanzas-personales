@@ -36,8 +36,9 @@ export async function middleware(request: NextRequest) {
   // Session validity is checked against the database in layouts and handlers.
   // Do not redirect /login solely on a JWT: the database session may be revoked.
   if (pathname === "/login") return NextResponse.next();
-  // This single write-only endpoint authenticates its own scoped bearer credential, never a cookie.
-  if (pathname === "/api/integrations/shortcuts/events" && request.method === "POST") return NextResponse.next();
+  // Native shortcuts have no web session: these exact POST endpoints use a bearer or one-use setup code.
+  const shortcutEndpoints = ["/api/integrations/shortcuts/events", "/api/integrations/shortcuts/pairing/exchange", "/api/integrations/shortcuts/check"];
+  if (shortcutEndpoints.includes(pathname) && request.method === "POST") return NextResponse.next();
 
   if (isApiPath(pathname) && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const origin = request.headers.get("origin");

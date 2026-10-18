@@ -39,6 +39,7 @@ test("Atajos: credencial privada, bandeja provisional y conciliación manual", a
   if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú" }).click();
   await page.getByRole("link", { name: "Notificaciones", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Notificaciones", exact: true })).toBeVisible();
+  await page.getByText("Configuración avanzada", { exact: true }).click();
   await page.getByLabel("Nombre", { exact: true }).fill("iPhone navegador " + info.project.name);
   await page.getByLabel("Cuenta", { exact: true }).selectOption({ label: "Cuenta de prueba" });
   await page.getByRole("button", { name: "Crear credencial" }).click();
@@ -66,6 +67,43 @@ test("Atajos: credencial privada, bandeja provisional y conciliación manual", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("notifications.png"), fullPage: true });
 });
+test("BBVA guiado: vincula sin copiar token, verifica y desconecta sin crear gastos", async ({ page }, info) => {
+  await page.goto("/login");
+  await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);
+  await page.getByLabel("Contraseña", { exact: true }).fill(process.env.E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
+  await page.goto("/notifications");
+  await page.getByRole("button", { name: "Conectar BBVA", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await page.getByLabel("Cuenta BBVA", { exact: true }).selectOption({ label: "Cuenta de prueba" });
+  await dialog.getByRole("checkbox").check();
+  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(dialog.getByRole("link", { name: "Instalar atajo" })).toHaveAttribute("href", /icloud.com\/shortcuts\/0{32}/);
+  // Simulate Apple's native install/exchange only; this is not an iPhone capability test.
+  await dialog.getByRole("button", { name: "Ya lo he añadido" }).click();
+  const link = dialog.getByRole("link", { name: "Vincular este iPhone" });
+  await expect(link).toBeVisible();
+  const code = JSON.parse(new URL((await link.getAttribute("href"))!).searchParams.get("text")!).code;
+  expect(await dialog.innerText()).not.toContain(code);
+  const exchange = await page.request.post("/api/integrations/shortcuts/pairing/exchange", { data: { code } });
+  expect(exchange.status()).toBe(200);
+  const device = await exchange.json();
+  expect((await page.request.post("/api/integrations/shortcuts/check", { headers: { Authorization: "Bearer " + device.token } })).status()).toBe(200);
+  await page.goto("/notifications?pairing=" + device.pairingId);
+  await expect(dialog.getByText("El atajo ha comprobado la conexión.")).toBeVisible();
+  await dialog.getByRole("button", { name: "Configurar automatización" }).click();
+  await expect(dialog.getByText(/Todavía no hemos recibido una notificación BBVA/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("bbva-guide.png"), fullPage: true });
+  await dialog.getByRole("button", { name: "Volver a mis notificaciones" }).click();
+  const row = page.getByTestId("shortcut-device-" + device.deviceId);
+  page.once("dialog", d => d.accept());
+  await row.getByRole("button", { name: "Desconectar", exact: true }).click();
+  await expect(row.getByText("Desconectado", { exact: true })).toBeVisible();
+  expect((await page.request.post("/api/integrations/shortcuts/check", { headers: { Authorization: "Bearer " + device.token } })).status()).toBe(401);
+});
+
 test("planificación conserva creación y edición verificadas tras guardar", async ({ page }, info) => {
   await page.goto("/login");
   await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);

@@ -1,5 +1,11 @@
 # Atajos de iPhone: bandeja bancaria provisional
 
+## Asistente de instalación (nuevo, pendiente de publicación)
+
+La PWA incorpora **Conectar BBVA**, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. Estado y pasos reales: [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md). El atajo Apple compartible todavía necesita exportación, prueba física y publicación por el mantenedor; sin enlace real el asistente lo indica y no inicia la vinculación. No hay instalación/automatización silenciosa.
+
+Las quince migraciones de `73a5682` ya quedaron reconciliadas en producción antes de esta entrega. La nueva `20261018210000_shortcut_guided_pairing` solo está preparada/probada localmente: **no se ha aplicado a producción**. Las instrucciones manuales siguientes se conservan como configuración avanzada y contrato del importador.
+
 ## Capacidad verificada y límites
 
 Consulta oficial realizada el 18/10/2026: la [guía de Apple para iOS 27](https://support.apple.com/guide/shortcuts/event-triggers-apd932ff833f/ios) documenta el disparador **Notification**, selección de app y filtros **Message / Subtitle / Title**. La [sesión de Apple WWDC26](https://developer.apple.com/videos/play/wwdc2026/310/) describe automatizaciones disparadas por notificaciones y tratamiento de su contenido.
@@ -9,9 +15,9 @@ Esto no prueba qué campos entrega cada banco a la entrada del atajo, ni garanti
 ## Activación pendiente de autorización
 
 1. No publicar este commit automáticamente.
-2. Resolver primero las tres discrepancias de historial descritas en [DEPLOYMENT.md](DEPLOYMENT.md).
-3. Revisar y autorizar la migración `20261018160000_shortcut_notification_inbox`; probarla en staging. Es aditiva: no modifica ni borra datos financieros existentes.
-4. Solo con autorización, aplicar esa migración mediante la conexión del esquema `app` y verificar RLS/permisos del rol Prisma. No usar el historial como sustituto de una comparación física.
+2. Confirmar el historial descrito en [DEPLOYMENT.md](DEPLOYMENT.md); las tres discrepancias antiguas ya se resolvieron y no deben repetirse.
+3. Revisar y autorizar la nueva migración `20261018210000_shortcut_guided_pairing`; probarla en staging. Es aditiva: no modifica ni borra datos financieros existentes.
+4. Solo con autorización, aplicar esa nueva migración mediante la conexión del esquema `app` y verificar RLS/permisos del rol Prisma. La migración de bandeja anterior ya está aplicada. No usar el historial como sustituto de una comparación física.
 5. Posteriormente configurar `SHORTCUTS_ENABLED=true` en el entorno autorizado y reiniciar/desplegar. Por defecto es `false`: ni los imports ni las páginas financieras consultan las nuevas tablas.
 
 ## Configurar el atajo (primero en staging)

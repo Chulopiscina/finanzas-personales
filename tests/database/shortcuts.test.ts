@@ -94,7 +94,7 @@ describe.skipIf(!url)("bandeja de Atajos aislada del libro contable", () => {
     const { prisma } = await import("@/lib/prisma");
     let blocked = true;
     prisma.$use(async (params, next) => {
-      if (blocked && ["ShortcutDevice", "BankNotification"].includes(params.model ?? "")) throw new Error("Tabla aún no migrada");
+      if (blocked && ["ShortcutDevice", "BankNotification", "ShortcutPairing"].includes(params.model ?? "")) throw new Error("Tabla aún no migrada");
       return next(params);
     });
     const previous = process.env.SHORTCUTS_ENABLED;

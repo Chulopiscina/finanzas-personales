@@ -17,6 +17,8 @@ const password = randomBytes(24).toString("hex");
 const pg = new EmbeddedPostgres({ databaseDir: directory, port, user: "postgres", password, persistent: false, postgresFlags: ["-h", "127.0.0.1"], onLog: () => {}, onError: () => {} });
 const url = `postgresql://postgres:${password}@127.0.0.1:${port}/finanzas_test?schema=app`;
 const env = { ...process.env, DATABASE_URL: url, DIRECT_URL: url, TEST_DATABASE_URL: url, AUTH_SECRET: randomBytes(32).toString("hex"), SHORTCUTS_ENABLED: "true" };
+// Syntactic fixture only. Browser tests never install this nonexistent iCloud shortcut.
+env.SHORTCUTS_BBVA_INSTALL_URL = "https://www.icloud.com/shortcuts/" + "0".repeat(32);
 let app;
 let resultCode = 1;
 async function run(args) {

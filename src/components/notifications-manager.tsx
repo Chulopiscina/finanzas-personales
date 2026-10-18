@@ -8,15 +8,18 @@ import { Input, Select } from "@/components/ui/input";
 import { useDialogFocus } from "@/components/use-dialog-focus";
 import { request } from "@/lib/client-request";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { ShortcutConnectWizard } from "@/components/shortcut-connect-wizard";
 
 type EventRow = { id: string; body: string; title: string | null; merchant: string | null; amount: number | null; currency: string | null; occurredAt: string | null; receivedAt: string; categoryName: string | null; account: string; status: string; reason: string; transactionId: string | null };
 type Candidate = { id: string; date: string; concept: string; cleanDescription: string | null; amount: string };
 const statusNames: Record<string, string> = { PENDING: "Provisional", REVIEW: "Revisar", AUTHORIZATION: "Retención", REVERSED: "Anulación", RECONCILED: "Conciliada", DISMISSED: "Descartada" };
 
-export function NotificationsManager({ accounts, devices: initialDevices, events: initialEvents }: {
+export function NotificationsManager({ accounts, devices: initialDevices, events: initialEvents, installUrl, initialPairingId }: {
   accounts: Array<{ id: string; name: string }>;
-  devices: Array<{ id: string; name: string; account: string; revoked: boolean; expiresAt: string }>;
+  devices: Array<{ id: string; name: string; account: string; revoked: boolean; expiresAt: string; lastVerifiedAt?: string | null; lastUsedAt?: string | null }>;
   events: EventRow[];
+  installUrl: string | null;
+  initialPairingId?: string;
 }) {
   const router = useRouter();
   const [events, setEvents] = useState(initialEvents);
@@ -62,10 +65,12 @@ export function NotificationsManager({ accounts, devices: initialDevices, events
     await loadCandidates(row);
   }
   return <div className="space-y-8">
+    <ShortcutConnectWizard accounts={accounts} installUrl={installUrl} initialPairingId={initialPairingId} />
     {error ? <p role="alert" className="rounded-md border border-danger/30 p-3 text-sm text-danger">{error}</p> : null}
     <section className="space-y-4 border-b border-border pb-6">
       <h2 className="text-lg font-semibold">Atajos autorizados</h2>
-      <form className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={async (e) => { e.preventDefault(); const data = await mutate("/api/integrations/shortcuts/devices", "POST", { name, accountId }); if (data) { setToken(data.token); setName(""); } }}>
+      <details className="space-y-3"><summary className="cursor-pointer text-sm text-muted-foreground">Configuración avanzada</summary>
+      <form className="grid items-end gap-3 pt-3 sm:grid-cols-[1fr_1fr_auto]" onSubmit={async (e) => { e.preventDefault(); const data = await mutate("/api/integrations/shortcuts/devices", "POST", { name, accountId }); if (data) { setToken(data.token); setName(""); } }}>
         <label className="space-y-1 text-sm">Nombre<Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required /></label>
         <label className="space-y-1 text-sm">Cuenta<Select aria-label="Cuenta" value={accountId} onChange={(e) => setAccount(e.target.value)} required>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</Select></label>
         <Button disabled={busy || !accountId}><Plus className="h-4 w-4" />Crear credencial</Button>
@@ -75,7 +80,8 @@ export function NotificationsManager({ accounts, devices: initialDevices, events
         <code className="block break-all text-sm">{token}</code>
         <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={async () => { try { await navigator.clipboard.writeText(token); } catch { setError("No se pudo copiar la credencial."); } }}><Copy className="h-4 w-4" />Copiar</Button><Button size="sm" variant="ghost" onClick={() => setToken("")}><X className="h-4 w-4" />Ocultar</Button></div>
       </div> : null}
-      <ul className="divide-y divide-border">{devices.map((device) => <li key={device.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"><span>{device.name} · {device.account}<span className="ml-2 text-muted-foreground">{device.revoked ? "Revocada" : `Caduca ${formatDate(device.expiresAt)}`}</span></span>{!device.revoked ? <Button size="sm" variant="ghost" disabled={busy} onClick={async () => { if (window.confirm("¿Revocar esta credencial? El atajo dejará de enviar notificaciones.")) await mutate("/api/integrations/shortcuts/devices", "DELETE", { id: device.id }); }}><ShieldX className="h-4 w-4" />Revocar</Button> : null}</li>)}</ul>
+      </details>
+      <ul className="divide-y divide-border">{devices.map((device) => <li key={device.id} data-testid={`shortcut-device-${device.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"><div className="min-w-0"><p className="break-words font-medium">{device.name} · {device.account}</p><p className="mt-1 text-xs text-muted-foreground">{device.revoked ? "Desconectado" : new Date(device.expiresAt) <= new Date() ? "Conexión caducada" : device.lastUsedAt ? `Última notificación: ${formatDate(device.lastUsedAt)}` : device.lastVerifiedAt ? "Conexión comprobada · esperando notificaciones" : "Vinculado · pendiente de comprobación"}</p><p className="text-xs text-muted-foreground">Caduca {formatDate(device.expiresAt)}</p></div>{!device.revoked ? <Button size="sm" variant="ghost" disabled={busy} onClick={async () => { if (window.confirm("¿Desconectar este iPhone? Dejará de recibir notificaciones. Los movimientos y notificaciones guardados se conservarán.")) await mutate("/api/integrations/shortcuts/devices", "DELETE", { id: device.id }); }}><ShieldX className="h-4 w-4" />Desconectar</Button> : null}</li>)}</ul>
     </section>
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">Bandeja provisional</h2><Button size="icon" variant="ghost" title="Actualizar bandeja" disabled={busy || refreshing} onClick={() => startRefresh(() => router.refresh())}><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} /></Button></div>

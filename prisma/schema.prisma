@@ -106,6 +106,7 @@ model User {
   monthlyBudgets MonthlyBudget[]
   shortcutDevices ShortcutDevice[]
   bankNotifications BankNotification[]
+  shortcutPairings ShortcutPairing[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -131,6 +132,7 @@ model Account {
   monthlyBudgets MonthlyBudget[]
   shortcutDevices ShortcutDevice[]
   bankNotifications BankNotification[]
+  shortcutPairings ShortcutPairing[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -408,10 +410,30 @@ model ShortcutDevice {
   expiresAt DateTime
   revokedAt DateTime?
   lastUsedAt DateTime?
+  lastVerifiedAt DateTime?
   windowStart DateTime @default(now())
   windowCount Int @default(0)
   createdAt DateTime @default(now())
   events BankNotification[]
+  pairing ShortcutPairing?
+
+  @@index([userId, createdAt])
+}
+
+// Short-lived setup capabilities, never bank credentials or financial movements.
+model ShortcutPairing {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId String
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  codeHash String @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  consumedAt DateTime?
+  canceledAt DateTime?
+  deviceId String? @unique
+  device ShortcutDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
 }

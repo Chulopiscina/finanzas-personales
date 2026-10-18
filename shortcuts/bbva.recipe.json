@@ -1,0 +1,39 @@
+{
+  "name": "Finanzas BBVA",
+  "contractVersion": 1,
+  "releaseStatus": "REQUIRES_APPLE_EXPORT_AND_PHYSICAL_IPHONE_TEST",
+  "format": "Maintainer action recipe; NOT an installable Apple shortcut",
+  "pinnedOrigin": "REPLACE_WITH_THIS_DEPLOYMENT_HTTPS_ORIGIN_BEFORE_EXPORT",
+  "configurationFile": "Shortcuts/FinanzasPersonales/bbva.json",
+  "sharedShortcutContainsCredentials": false,
+  "branches": {
+    "pair": [
+      "Accept text JSON from shortcuts://run-shortcut. Require mode=pair and version=1.",
+      "Require input.origin to equal pinnedOrigin EXACTLY. Never trust a URL received from a website/notification as a destination.",
+      "POST pinnedOrigin + /api/integrations/shortcuts/pairing/exchange with JSON {code: input.code}. Do not put the code in the HTTP URL.",
+      "If response contains an error or lacks token/deviceId/pairingId, stop and show the error. A spent code cannot be retried to retrieve a token.",
+      "Save {origin: pinnedOrigin, token, deviceId, expiresAt} in the user's private configuration file, separate from the shortcut actions. No clipboard, shared link, analytics or logs.",
+      "POST pinnedOrigin + /api/integrations/shortcuts/check with Authorization: Bearer <saved token>.",
+      "Require response.ok=true before reporting connection verified. No event is submitted for this check.",
+      "Open pinnedOrigin + /notifications?pairing=<response pairingId>. Never include token/code in the callback URL."
+    ],
+    "manualCheckWithoutNotification": [
+      "Read saved configuration. Require saved origin to equal pinnedOrigin.",
+      "POST /api/integrations/shortcuts/check with saved bearer. Report only success/error; never show the token."
+    ],
+    "notification": [
+      "Read saved configuration; require pinned origin and nonempty token. Otherwise stop and ask to reconnect from the PWA.",
+      "Get the ORIGINAL notification message from Shortcut Input using the property actually verified on a real iPhone. Do not assume an undocumented property name.",
+      "If there is no usable message, stop. Do not manufacture an amount, account, date or merchant.",
+      "Generate UUID once. Keep it in a variable for this event and every retry of that same request.",
+      "POST /api/integrations/shortcuts/events with bearer and JSON {eventId: UUID, body: original message, sourceApp: BBVA}.",
+      "Only include title/subtitle/occurredAt/merchant/bankReference if the bank supplies them unequivocally. Never use receipt time as occurredAt.",
+      "Accept 202 or duplicate 200. On 401 reconnect; on 409 stop; on 429/503 retain the original UUID if a retry is offered. Never retry with a new UUID."
+    ]
+  },
+  "automation": {
+    "installedAutomatically": false,
+    "instructions": ["Open installed shortcut > Edit > Automation", "Choose Notification > BBVA", "Confirm Apple's permissions and test locked/unlocked"],
+    "notificationFieldsVerifiedOnPhysicalIPhone": false
+  }
+}

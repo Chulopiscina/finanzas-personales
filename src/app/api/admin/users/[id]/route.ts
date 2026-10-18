@@ -4,7 +4,7 @@ import { Prisma, Role } from "@prisma/client";
 import { assertPasswordStrength, hashPassword, requireAdmin } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
-import { shortcutsEnabled } from "@/lib/shortcuts";
+import { revokeShortcutAuthorizations } from "@/lib/shortcuts";
 
 type UpdateUserBody = {
   name?: string;
@@ -75,6 +75,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (previous.role === Role.ADMIN && data.role === Role.USER && await tx.user.count({ where: { role: Role.ADMIN } }) <= 1) {
         throw new InputError("No puedes quitar el rol al último administrador.");
       }
+      if (data.passwordHash || (data.role && data.role !== previous.role)) await revokeShortcutAuthorizations(tx, id);
       const updated = await tx.user.update({
       where: { id },
       data,
@@ -90,7 +91,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       }
       });
       if (data.passwordHash || (data.role && data.role !== previous.role)) await tx.session.deleteMany({ where: { userId: id } });
-      if (shortcutsEnabled() && (data.passwordHash || (data.role && data.role !== previous.role))) await tx.shortcutDevice.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       return updated;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 

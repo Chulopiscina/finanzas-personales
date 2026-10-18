@@ -11,6 +11,14 @@ export function requireShortcuts() {
 }
 export const shortcutTokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
+export async function revokeShortcutAuthorizations(tx: Prisma.TransactionClient, userId: string) {
+  if (!shortcutsEnabled()) return;
+  await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"pairing:" + userId}))`;
+  const now = new Date();
+  await tx.shortcutDevice.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+  await tx.shortcutPairing.updateMany({ where: { userId, consumedAt: null, canceledAt: null }, data: { canceledAt: now } });
+}
+
 export async function createShortcutDevice(userId: string, accountId: string, name: string) {
   requireShortcuts();
   if (!name.trim() || name.length > 100) throw new InputError("Nombre obligatorio (máximo 100 caracteres).");
