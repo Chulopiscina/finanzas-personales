@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import { HandCoins, MoreHorizontal, Search, Target, Trash2, X } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
@@ -7,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 
 type CategoryType = "INCOME" | "EXPENSE" | "SAVINGS" | "TRANSFER" | "OTHER";
 type Category = { id: string; name: string; color: string; type?: CategoryType };
@@ -108,12 +110,37 @@ export function TransactionsTable({
   const [query, setQuery] = useState(initialFilters.query);
   const [filters, setFilters] = useState(initialFilters);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState("");
   const [quickCategory, setQuickCategory] = useState<QuickCategoryState | null>(null);
   const [internalTransfer, setInternalTransfer] = useState<InternalTransferState | null>(null);
   const [planningAssociation, setPlanningAssociation] = useState<PlanningAssociationState | null>(null);
   const [reimbursement, setReimbursement] = useState<ReimbursementState | null>(null);
   const [counterpartSearch, setCounterpartSearch] = useState("");
   const [openActions, setOpenActions] = useState<{ transactionId: string; left: number; top: number } | null>(null);
+  useDialogFocus(Boolean(quickCategory || internalTransfer || planningAssociation || reimbursement), () => { setQuickCategory(null); setInternalTransfer(null); setPlanningAssociation(null); setReimbursement(null); });
+  const [candidateRows, setCandidateRows] = useState<TransactionRow[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidateError, setCandidateError] = useState("");
+  const candidateId = internalTransfer?.transactionId ?? reimbursement?.transactionId;
+  const candidateAccount = internalTransfer?.counterAccountId;
+  const candidateKind = internalTransfer ? "transfer" : "refund";
+  useEffect(() => {
+    if (!candidateId || (candidateKind === "transfer" && !candidateAccount)) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setCandidateLoading(true); setCandidateError("");
+      try {
+        const params = new URLSearchParams({ kind: candidateKind, q: counterpartSearch });
+        if (candidateAccount) params.set("accountId", candidateAccount);
+        const response = await request(`/api/transactions/${candidateId}/candidates?${params}`, { signal: controller.signal });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error ?? "No se pudieron cargar candidatos.");
+        setCandidateRows(payload.candidates);
+      } catch (error) { if (!controller.signal.aborted) setCandidateError(error instanceof Error ? error.message : "Error de conexión."); }
+      finally { if (!controller.signal.aborted) setCandidateLoading(false); }
+    }, 250);
+    return () => { window.clearTimeout(timeout); controller.abort(); };
+  }, [candidateId, candidateAccount, candidateKind, counterpartSearch]);
 
   useEffect(() => {
     setTransactions(initialTransactions);
@@ -125,6 +152,7 @@ export function TransactionsTable({
     const timeout = window.setTimeout(() => {
       const next = new URLSearchParams(searchParams.toString());
       const values = { accountId: filters.accountId, categoryId: filters.categoryId, type: filters.type, importId: filters.importId, planningGoalId: filters.planningGoalId, q: query.trim() };
+      if (Object.entries(values).every(([key, value]) => (searchParams.get(key) ?? "") === value)) return;
       for (const [key, value] of Object.entries(values)) {
         if (value) next.set(key, value);
         else next.delete(key);
@@ -154,13 +182,15 @@ export function TransactionsTable({
 
   async function patchTransaction(id: string, body: Record<string, unknown>) {
     setSavingId(id);
-    const response = await fetch(`/api/transactions/${id}`, {
+    setMutationError("");
+    const response = await request(`/api/transactions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
     setSavingId(null);
+    if (!response.ok) setMutationError(payload.error ?? "No se pudo guardar el cambio.");
     return response.ok ? (payload.transaction as TransactionRow) : null;
   }
 
@@ -196,7 +226,7 @@ export function TransactionsTable({
       return;
     }
 
-    const response = await fetch("/api/categories", {
+    const response = await request("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, type: quickCategory.type, color: quickCategory.color })
@@ -235,6 +265,7 @@ export function TransactionsTable({
   }
 
   function openInternalTransfer(tx: TransactionRow) {
+    setCandidateRows([]);
     const defaultCounter = accounts.find((account) => account.id !== tx.accountId)?.id ?? "";
     setCounterpartSearch("");
     setInternalTransfer({
@@ -295,7 +326,7 @@ export function TransactionsTable({
     if (!tx) return;
 
     setSavingId(tx.id);
-    const response = await fetch(`/api/transactions/${tx.id}/planning`, {
+    const response = await request(`/api/transactions/${tx.id}/planning`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -317,6 +348,7 @@ export function TransactionsTable({
     setPlanningAssociation(null);
   }
   function openReimbursement(tx: TransactionRow) {
+    setCounterpartSearch(""); setCandidateRows([]);
     setReimbursement({ transactionId: tx.id, selectedExpenseIds: tx.reimbursementLinks.map((item) => item.expenseId), error: "" });
   }
 
@@ -325,7 +357,7 @@ export function TransactionsTable({
     const tx = transactions.find((item) => item.id === reimbursement.transactionId);
     if (!tx) return;
     setSavingId(tx.id);
-    const response = await fetch(`/api/transactions/${tx.id}/reimbursements`, {
+    const response = await request(`/api/transactions/${tx.id}/reimbursements`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ expenseIds: reimbursement.selectedExpenseIds })
@@ -342,7 +374,7 @@ export function TransactionsTable({
 
   async function clearReimbursement(tx: TransactionRow) {
     setSavingId(tx.id);
-    const response = await fetch(`/api/transactions/${tx.id}/reimbursements`, {
+    const response = await request(`/api/transactions/${tx.id}/reimbursements`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ expenseIds: [] })
@@ -359,31 +391,13 @@ export function TransactionsTable({
   const internalTransferSource = internalTransfer ? transactions.find((tx) => tx.id === internalTransfer.transactionId) ?? null : null;
   const planningSource = planningAssociation ? transactions.find((tx) => tx.id === planningAssociation.transactionId) ?? null : null;
   const reimbursementSource = reimbursement ? transactions.find((tx) => tx.id === reimbursement.transactionId) ?? null : null;
-  const reimbursementCandidates = reimbursementSource ? transactions.filter((tx) => tx.type === "EXPENSE" && !tx.isInternalTransfer && tx.id !== reimbursementSource.id).slice(0, 80) : [];
-  const counterpartQuery = counterpartSearch.trim().toLowerCase();
-  const counterpartOptions = internalTransferSource
-    ? transactions
-        .filter((tx) => {
-          if (tx.id === internalTransferSource.id || tx.accountId !== internalTransfer?.counterAccountId || Math.sign(tx.amount) !== -Math.sign(internalTransferSource.amount)) return false;
-          const amountDiff = Math.abs(Math.abs(tx.amount) - Math.abs(internalTransferSource.amount));
-          const dayDiff = Math.abs(new Date(tx.date).getTime() - new Date(internalTransferSource.date).getTime()) / 86_400_000;
-          const closeMatch = amountDiff <= Math.max(1, Math.abs(internalTransferSource.amount) * 0.001) && dayDiff <= 14;
-          const queryMatch = !counterpartQuery || [tx.concept, tx.cleanDescription, tx.account?.name, formatCurrency(tx.amount), formatDate(tx.date)].filter(Boolean).join(" ").toLowerCase().includes(counterpartQuery);
-          return counterpartQuery ? queryMatch : closeMatch;
-        })
-        .sort((left, right) => {
-          const leftAmountDiff = Math.abs(Math.abs(left.amount) - Math.abs(internalTransferSource.amount));
-          const rightAmountDiff = Math.abs(Math.abs(right.amount) - Math.abs(internalTransferSource.amount));
-          if (leftAmountDiff !== rightAmountDiff) return leftAmountDiff - rightAmountDiff;
-          return Math.abs(new Date(left.date).getTime() - new Date(internalTransferSource.date).getTime()) - Math.abs(new Date(right.date).getTime() - new Date(internalTransferSource.date).getTime());
-        })
-        .slice(0, 12)
-    : [];
+  const reimbursementCandidates = reimbursementSource ? candidateRows : [];
+  const counterpartOptions = internalTransferSource ? candidateRows : [];
 
   async function remove(id: string) {
     const confirmed = window.confirm("¿Eliminar este movimiento? Esta acción no se puede deshacer.");
     if (!confirmed) return;
-    const response = await fetch("/api/transactions/" + id, { method: "DELETE" });
+    const response = await request("/api/transactions/" + id, { method: "DELETE" });
     if (response.ok) setTransactions((current) => current.filter((tx) => tx.id !== id));
   }
 
@@ -425,7 +439,7 @@ export function TransactionsTable({
     const width = 256;
     const margin = 12;
     const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
-    setOpenActions({ transactionId: tx.id, left, top: rect.bottom + 6 });
+    setOpenActions({ transactionId: tx.id, left, top: Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - 300)) });
   }
 
   function ActionMenu({ tx }: { tx: TransactionRow }) {
@@ -474,7 +488,7 @@ export function TransactionsTable({
   }
 
   return (
-    <section className="rounded-lg border border-border bg-card shadow-sm">
+    <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
       <div className="space-y-3 border-b border-border p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -514,7 +528,9 @@ export function TransactionsTable({
         </div>
       </div>
 
-      <div className="hidden overflow-x-auto lg:block">
+      {mutationError ? <p className="p-4 text-sm text-danger" role="alert">{mutationError}</p> : null}
+      {candidateId && (candidateLoading || candidateError) ? <p className="px-4 py-2 text-sm text-muted-foreground" role="status">{candidateError || "Buscando movimientos..."}</p> : null}
+      <div className="movement-desktop overflow-x-auto">
         <table className="w-full table-fixed border-collapse text-xs">
           <colgroup>
             <col className="w-[76px]" />
@@ -539,7 +555,7 @@ export function TransactionsTable({
               <th className="px-2 py-2 font-medium">Tipo</th>
               <th className="px-2 py-2 font-medium">Planificaci&oacute;n</th>
               <th className="px-2 py-2 font-medium">Objetivo</th>
-              <th className="sticky right-0 z-10 bg-muted px-2 py-2 text-right font-medium shadow-[-10px_0_18px_-18px_rgba(15,23,42,0.7)]">Acciones</th>
+              <th className="sticky right-0 z-10 bg-muted px-2 py-2 text-right font-medium shadow-[-10px_0_18px_-18px_rgba(15,23,42,0.7)]"><span className="sr-only">Acciones</span><MoreHorizontal className="ml-auto h-4 w-4" aria-hidden="true" /></th>
             </tr>
           </thead>
           <tbody>
@@ -570,7 +586,7 @@ export function TransactionsTable({
                   <td className="px-2 py-2"><div className="truncate" title={typeBadge.label}><Badge tone={typeBadge.tone}>{typeBadge.label}</Badge></div></td>
                   <td className="px-2 py-2">
                     <div className="flex min-w-0 flex-col items-start gap-1">
-                      <Badge tone={planningTone(tx)}>{planningLabel(tx)}</Badge>
+                      {tx.type !== "EXPENSE" || tx.isInternalTransfer ? <Badge tone={planningTone(tx)}>{planningLabel(tx)}</Badge> : null}
                       {tx.type === "EXPENSE" && !tx.isInternalTransfer ? (
                         <Select value={tx.isFixedExpense ? "fixed" : "variable"} onChange={(event) => void updateExpenseKind(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-7 w-full text-xs">
                           <option value="variable">Variable</option>
@@ -593,7 +609,7 @@ export function TransactionsTable({
         </table>
       </div>
 
-      <div className="space-y-3 p-4 lg:hidden">
+      <div className="movement-mobile space-y-3 p-4">
         {filtered.map((tx) => {
           const typeBadge = movementType(tx);
           const sourceText = tx.importHistory ? "Importado desde " + tx.importHistory.fileName : "Manual";

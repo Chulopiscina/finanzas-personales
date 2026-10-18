@@ -1,7 +1,9 @@
-import { AccountType, BudgetBlockType, PlanningGoalType, PlanningStatus, RecurringPaymentStatus, Role, TransactionType, type Account, type Category, type Transaction } from "@prisma/client";
+import { Prisma, AccountType, BudgetBlockType, PlanningGoalType, PlanningStatus, RecurringPaymentStatus, Role, type Account, type Category, type Transaction } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
+import { accountingType, grossExpense, income, isRefund, refundShares, ledgerTotals, spendingEntries, savingsContribution } from "@/lib/ledger";
+import { addMoney, cents, euros, sumMoney } from "@/lib/money";
 
 type ReimbursementLink = {
   expenseId: string;
@@ -54,24 +56,19 @@ function addMonths(date: Date, months: number) {
 }
 
 function signedExpense(tx: TransactionWithCategory) {
-  const amount = toNumber(tx.amount);
-  return tx.type === TransactionType.EXPENSE && !tx.isInternalTransfer ? Math.abs(amount) : 0;
+  return grossExpense(tx);
 }
 
-function signedIncome(tx: TransactionWithCategory) {
-  const amount = toNumber(tx.amount);
-  return tx.type === TransactionType.INCOME && !tx.isInternalTransfer ? Math.abs(amount) : 0;
-}
 
 function isReimbursement(tx: TransactionWithCategory) {
-  return tx.type === TransactionType.INCOME && !tx.isInternalTransfer && (tx.reimbursementLinks?.length ?? 0) > 0;
+  return isRefund(tx);
 }
 
 function realIncome(tx: TransactionWithCategory) {
-  return signedIncome(tx) > 0 && !isReimbursement(tx) ? Math.abs(toNumber(tx.amount)) : 0;
+  return income(tx);
 }
 
-type DashboardRange = { start: Date | null; end: Date | null; label: string };
+export type DashboardRange = { start: Date | null; end: Date | null; label: string };
 
 function startOfDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -95,7 +92,7 @@ function normalizeText(value: string) {
 }
 
 function isPayrollTransaction(tx: TransactionWithCategory) {
-  if (tx.type !== TransactionType.INCOME || tx.isInternalTransfer || isReimbursement(tx)) return false;
+  if (realIncome(tx) <= 0 || tx.isInternalTransfer || isReimbursement(tx)) return false;
   const category = normalizeText(tx.category?.name ?? "");
   const text = normalizeText([tx.concept, tx.cleanDescription, tx.rawDescription, tx.category?.name].filter(Boolean).join(" "));
   const looksLikePayroll = category === "nomina" || /\b(abono de nomina|nomina|nomines)\b/.test(text);
@@ -158,39 +155,19 @@ function periodRange(period: DashboardPeriod, transactions: TransactionWithCateg
   return mode === "payroll" ? payrollPeriodRange(period, transactions) : calendarPeriodRange(period, transactions);
 }
 
-function inPeriod(tx: TransactionWithCategory, range: DashboardRange) {
-  return (!range.start || tx.date >= range.start) && (!range.end || tx.date < range.end);
-}
 
 function reimbursementAllocation(transactions: TransactionWithCategory[]) {
-  const periodExpenseIds = new Set(transactions.filter((tx) => signedExpense(tx) > 0).map((tx) => tx.id));
   const allocations = new Map<string, number>();
-  const reimbursements = transactions.filter(isReimbursement);
-
-  for (const reimbursement of reimbursements) {
-    const linkedExpenses: TransactionWithCategory[] = [];
-    for (const link of reimbursement.reimbursementLinks ?? []) {
-      if (link.expense && periodExpenseIds.has(link.expense.id)) {
-        linkedExpenses.push(link.expense);
-      }
-    }
-
-    if (linkedExpenses.length === 0) continue;
-    const reimbursementAmount = Math.abs(toNumber(reimbursement.amount));
-    const linkedGross = linkedExpenses.reduce((sum, expense) => sum + signedExpense(expense), 0);
-    if (linkedGross <= 0) continue;
-
-    for (const expense of linkedExpenses) {
-      const share = reimbursementAmount * (signedExpense(expense) / linkedGross);
-      allocations.set(expense.id, (allocations.get(expense.id) ?? 0) + share);
+  for (const reimbursement of transactions) {
+    for (const { expense, amount } of refundShares(reimbursement)) {
+      allocations.set(expense.id, addMoney(allocations.get(expense.id) ?? 0, amount));
     }
   }
 
   return allocations;
 }
 
-function buildMonthlyRows(transactions: TransactionWithCategory[]) {
-  const allocations = reimbursementAllocation(transactions);
+export function buildMonthlyRows(transactions: TransactionWithCategory[]) {
   const grouped = new Map<string, { month: string; income: number; grossExpenses: number; reimbursements: number; netExpenses: number; savings: number; transactions: number; categories: Map<string, number> }>();
 
   for (const tx of transactions) {
@@ -199,19 +176,18 @@ function buildMonthlyRows(transactions: TransactionWithCategory[]) {
     const income = realIncome(tx);
     const expense = signedExpense(tx);
     const reimbursement = isReimbursement(tx) ? Math.abs(toNumber(tx.amount)) : 0;
-    const allocation = allocations.get(tx.id) ?? 0;
-    const netExpense = Math.max(0, expense - allocation);
+    const netExpense = addMoney(expense, -reimbursement);
 
-    row.income += income;
-    row.grossExpenses += expense;
-    row.reimbursements += reimbursement;
-    row.netExpenses += netExpense;
-    row.savings += income - netExpense;
+    row.income = addMoney(row.income, income);
+    row.grossExpenses = addMoney(row.grossExpenses, expense);
+    row.reimbursements = addMoney(row.reimbursements, reimbursement);
+    row.netExpenses = addMoney(row.netExpenses, netExpense);
+    row.savings = addMoney(row.savings, income, -netExpense);
     row.transactions += 1;
 
-    if (netExpense > 0) {
-      const category = tx.category?.name ?? "Sin categoría";
-      row.categories.set(category, (row.categories.get(category) ?? 0) + netExpense);
+    for (const entry of spendingEntries(tx)) {
+      const category = entry.source.category?.name ?? "Sin categoría";
+      row.categories.set(category, addMoney(row.categories.get(category) ?? 0, entry.amount));
     }
 
     grouped.set(key, row);
@@ -220,22 +196,18 @@ function buildMonthlyRows(transactions: TransactionWithCategory[]) {
   return [...grouped.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
-function categoryRows(transactions: TransactionWithCategory[]) {
-  const allocations = reimbursementAllocation(transactions);
+export function categoryRows(transactions: TransactionWithCategory[]) {
   const totals = new Map<string, { name: string; value: number; color: string; gross: number; reimbursements: number }>();
 
   for (const tx of transactions) {
-    const expense = signedExpense(tx);
-    if (expense === 0) continue;
-    const allocation = allocations.get(tx.id) ?? 0;
-    const value = Math.max(0, expense - allocation);
-    if (value === 0) continue;
-    const name = tx.category?.name ?? "Sin categoría";
-    const current = totals.get(name) ?? { name, value: 0, color: tx.category?.color ?? "#94a3b8", gross: 0, reimbursements: 0 };
-    current.value += value;
-    current.gross += expense;
-    current.reimbursements += allocation;
-    totals.set(name, current);
+    for (const entry of spendingEntries(tx)) {
+      const name = entry.source.category?.name ?? "Sin categoría";
+      const current = totals.get(name) ?? { name, value: 0, color: entry.source.category?.color ?? "#94a3b8", gross: 0, reimbursements: 0 };
+      current.value = addMoney(current.value, entry.amount);
+      current.gross = addMoney(current.gross, Math.max(0, entry.amount));
+      current.reimbursements = addMoney(current.reimbursements, -Math.min(0, entry.amount));
+      totals.set(name, current);
+    }
   }
 
   return [...totals.values()].sort((a, b) => b.value - a.value);
@@ -274,84 +246,54 @@ function recommendations(categoryTotals: ReturnType<typeof categoryRows>, monthl
   return tips;
 }
 
-const internalTransferConceptPattern = /\b(transferencia|traspaso|transfer|ahorro|trade republic|bbva|ing|movimiento|emitida|recibida|inbound|outbound)\b/i;
-
-function transferCandidate(tx: TransactionWithCategory) {
-  const concept = `${tx.concept} ${tx.cleanDescription ?? ""} ${tx.rawDescription ?? ""} ${tx.account?.name ?? ""}`;
-  return tx.type === TransactionType.TRANSFER || internalTransferConceptPattern.test(concept);
-}
-
-function possibleInternalTransferPair(outgoing: TransactionWithCategory, incoming: TransactionWithCategory) {
-  const outAmount = Math.abs(toNumber(outgoing.amount));
-  return transferCandidate(outgoing) || transferCandidate(incoming) || outAmount >= 1000;
-}
-
-function closeEnoughAmount(left: number, right: number) {
-  const diff = Math.abs(Math.abs(left) - Math.abs(right));
-  return diff <= Math.max(1, Math.abs(left) * 0.001);
-}
-
-function closeEnoughDate(left: Date, right: Date) {
-  return Math.abs(left.getTime() - right.getTime()) / 86_400_000 <= 7;
-}
-
-function hasPairedInternalTransfer(tx: TransactionWithCategory) {
-  return tx.isInternalTransfer && Boolean(tx.internalTransferGroupId?.startsWith("internal-"));
-}
-
-export async function detectAndMarkInternalTransfers(userId: string) {
-  const transactions = await prisma.transaction.findMany({ where: { userId }, include: { category: true, account: true }, orderBy: [{ date: "asc" }, { createdAt: "asc" }] });
-  const candidates = transactions.filter((tx) => toNumber(tx.amount) !== 0);
-  const used = new Set<string>();
-  const updates: Array<{ outId: string; inId: string; outAccountId: string; inAccountId: string }> = [];
-
-  for (const outgoing of candidates) {
-    const outAmount = toNumber(outgoing.amount);
-    if (outAmount >= 0 || used.has(outgoing.id) || hasPairedInternalTransfer(outgoing)) continue;
-    const incoming = candidates.find((candidate) => {
-      const inAmount = toNumber(candidate.amount);
-      const alreadyLinked = outgoing.isInternalTransfer && candidate.isInternalTransfer && outgoing.internalTransferGroupId !== null && outgoing.internalTransferGroupId === candidate.internalTransferGroupId;
-      return inAmount > 0 && !used.has(candidate.id) && !alreadyLinked && !hasPairedInternalTransfer(candidate) && candidate.accountId !== outgoing.accountId && closeEnoughAmount(outAmount, inAmount) && closeEnoughDate(outgoing.date, candidate.date) && possibleInternalTransferPair(outgoing, candidate);
-    });
-    if (!incoming) continue;
-    used.add(outgoing.id);
-    used.add(incoming.id);
-    updates.push({ outId: outgoing.id, inId: incoming.id, outAccountId: outgoing.accountId, inAccountId: incoming.accountId });
-  }
-
-  for (const pair of updates) {
-    const groupId = `internal-${[pair.outId, pair.inId].sort().join("-")}`;
-    await prisma.$transaction([
-      prisma.transaction.update({ where: { id: pair.outId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, isFixedExpense: false, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.inAccountId } }),
-      prisma.transaction.update({ where: { id: pair.inId }, data: { type: TransactionType.TRANSFER, isInternalTransfer: true, isFixedExpense: false, internalTransferGroupId: groupId, internalTransferCounterAccountId: pair.outAccountId } })
-    ]);
-  }
-
-  return updates.length;
-}
 
 export async function ensureDefaultAccount(userId: string) {
   const existing = await prisma.account.findFirst({ where: { userId }, orderBy: { createdAt: "asc" } });
   if (existing) return existing;
-  return prisma.account.create({ data: { userId, name: "Cuenta principal", type: AccountType.BANK, color: "#14b8a6", icon: "landmark" } });
+  return prisma.account.upsert({ where: { userId_name: { userId, name: "Cuenta principal" } }, create: { userId, name: "Cuenta principal", type: AccountType.BANK, color: "#14b8a6", icon: "landmark" }, update: {} });
 }
 
 export function accountBalance(account: Account, transactions: Array<Pick<Transaction, "accountId" | "amount" | "balance">>) {
   const accountTransactions = transactions.filter((tx) => tx.accountId === account.id);
   const latestWithBalance = accountTransactions.find((tx) => tx.balance !== null);
-  if (latestWithBalance?.balance !== null && latestWithBalance?.balance !== undefined) return toNumber(latestWithBalance.balance);
-  return toNumber(account.initialBalance) + accountTransactions.reduce((sum, tx) => sum + toNumber(tx.amount), 0);
+  if (latestWithBalance?.balance !== null && latestWithBalance?.balance !== undefined) {
+    const index = accountTransactions.indexOf(latestWithBalance);
+    return addMoney(latestWithBalance.balance, sumMoney(accountTransactions.slice(0, index), (tx) => tx.amount));
+  }
+  return addMoney(account.initialBalance, sumMoney(accountTransactions, (tx) => tx.amount));
+}
+
+export async function getAccountBalances(userId: string, accountIds: string[]) {
+  if (!accountIds.length) return [];
+  return prisma.$queryRaw<Array<{ id: string; confirmedBalance: Prisma.Decimal | null; confirmedAt: Date | null; currentBalance: Prisma.Decimal }>>(Prisma.sql`
+    SELECT a."id", anchor."balance" AS "confirmedBalance", anchor."date" AS "confirmedAt",
+      COALESCE(anchor."balance", a."initialBalance") + COALESCE(tail."amount", 0) AS "currentBalance"
+    FROM "Account" a
+    LEFT JOIN LATERAL (
+      SELECT t."id", t."date", t."createdAt", t."balance",
+        CASE WHEN t."raw"->>'statementSequence' ~ '^[0-9]{1,7}$' THEN (t."raw"->>'statementSequence')::int ELSE 0 END AS sequence
+      FROM "Transaction" t
+      WHERE t."userId" = ${userId} AND t."accountId" = a."id" AND t."balance" IS NOT NULL
+      ORDER BY t."date" DESC, t."createdAt" DESC, sequence DESC, t."id" DESC LIMIT 1
+    ) anchor ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT SUM(t."amount") AS "amount" FROM "Transaction" t
+      WHERE t."userId" = ${userId} AND t."accountId" = a."id"
+        AND (anchor."id" IS NULL OR (t."date", t."createdAt", CASE WHEN t."raw"->>'statementSequence' ~ '^[0-9]{1,7}$' THEN (t."raw"->>'statementSequence')::int ELSE 0 END, t."id") > (anchor."date", anchor."createdAt", anchor.sequence, anchor."id"))
+    ) tail ON TRUE
+    WHERE a."userId" = ${userId} AND a."id" IN (${Prisma.join(accountIds)})
+  `);
 }
 
 function internalTransferTotal(transactions: TransactionWithCategory[], selectedAccount: Account | null) {
   const internal = transactions.filter((tx) => tx.isInternalTransfer);
-  if (selectedAccount) return internal.reduce((sum, tx) => sum + Math.abs(toNumber(tx.amount)), 0);
+  if (selectedAccount) return sumMoney(internal, (tx) => Math.abs(toNumber(tx.amount)));
   const grouped = new Map<string, number>();
   for (const tx of internal) {
     const key = tx.internalTransferGroupId ?? tx.id;
     grouped.set(key, Math.max(grouped.get(key) ?? 0, Math.abs(toNumber(tx.amount))));
   }
-  return [...grouped.values()].reduce((sum, amount) => sum + amount, 0);
+  return sumMoney([...grouped.values()], (amount) => amount);
 }
 
 type BudgetWithCategories = { accountId: string | null; month: Date; expectedIncome: unknown; fixedLimit: unknown; variableLimit: unknown; extraLimit: unknown; savingsGoal: unknown; categories: Array<{ categoryId: string; block: BudgetBlockType }> };
@@ -362,6 +304,9 @@ type SavingsPlanningGoal = {
   id: string;
   accountId: string | null;
   targetAmount: unknown;
+  period?: string;
+  periodStart?: Date | null;
+  periodEnd?: Date | null;
   categories: Array<{ categoryId: string }>;
   transactions: Array<{ transactionId: string; includeInternalTransfer: boolean }>;
 };
@@ -370,16 +315,17 @@ function budgetMonthKey(date: Date) {
   return monthKey(startOfMonth(date));
 }
 
-function rangeIncludesBudgetMonth(month: Date, range: DashboardRange, period: DashboardPeriod) {
+export function rangeIncludesBudgetMonth(month: Date, range: DashboardRange, period: DashboardPeriod) {
   if (period === "all" || period === "payroll-all") return true;
   if (!range.start) return true;
   const monthStart = startOfMonth(month);
   const start = startOfMonth(range.start);
+  if (period === "payroll-current" || period === "payroll-last-closed") return budgetMonthKey(monthStart) === budgetMonthKey(start);
+  if (period === "payroll-last-3") return monthStart >= start && monthStart < addMonths(start, 3);
   if (!range.end) {
-    if (period === "payroll-last-3") return monthStart >= start && monthStart <= startOfMonth(new Date());
     return budgetMonthKey(monthStart) === budgetMonthKey(start);
   }
-  return monthStart >= start && monthStart < startOfMonth(range.end);
+  return monthStart >= start && monthStart <= startOfMonth(addDays(range.end, -1));
 }
 
 function selectBudgetsForDashboard(budgets: BudgetWithCategories[], selectedAccount: Account | null, range: DashboardRange, period: DashboardPeriod) {
@@ -403,40 +349,30 @@ function blockSummary(limit: number, actual: number): BudgetBlockSummary {
     limit,
     actual,
     percent: limit > 0 ? Math.round((actual / limit) * 100) : 0,
-    remaining: limit - actual
+    remaining: addMoney(limit, -actual)
   };
 }
 
-function buildBudgetSummary(budgets: BudgetWithCategories[], transactions: TransactionWithCategory[], allocations: Map<string, number>) {
+export function buildBudgetSummary(budgets: BudgetWithCategories[], transactions: TransactionWithCategory[]) {
   const selected = budgets;
-  const fixedLimit = selected.reduce((sum, budget) => sum + toNumber(budget.fixedLimit), 0);
-  const variableLimit = selected.reduce((sum, budget) => sum + toNumber(budget.variableLimit), 0);
-  const extraLimit = selected.reduce((sum, budget) => sum + toNumber(budget.extraLimit), 0);
-  const savingsGoal = selected.reduce((sum, budget) => sum + toNumber(budget.savingsGoal), 0);
-  const expectedIncome = selected.reduce((sum, budget) => sum + toNumber(budget.expectedIncome), 0);
-  const categoryBlocks = new Map<string, BudgetBlockType>();
-
-  for (const budget of selected) {
-    for (const item of budget.categories) categoryBlocks.set(item.categoryId, item.block);
-  }
+  const fixedLimit = sumMoney(selected, (budget) => budget.fixedLimit);
+  const variableLimit = sumMoney(selected, (budget) => budget.variableLimit);
+  const extraLimit = sumMoney(selected, (budget) => budget.extraLimit);
+  const savingsGoal = sumMoney(selected, (budget) => budget.savingsGoal);
+  const expectedIncome = sumMoney(selected, (budget) => budget.expectedIncome);
 
   const actual = { fixed: 0, variable: 0, extra: 0, savings: 0 };
   for (const tx of transactions) {
-    const expense = signedExpense(tx);
-    if (expense <= 0) continue;
-    const netExpense = Math.max(0, expense - (allocations.get(tx.id) ?? 0));
-    if (netExpense <= 0) continue;
-    const block = tx.categoryId ? categoryBlocks.get(tx.categoryId) : null;
-    if (block === BudgetBlockType.FIXED) actual.fixed += netExpense;
-    else if (block === BudgetBlockType.EXTRA) actual.extra += netExpense;
-    else if (block === BudgetBlockType.SAVINGS) actual.savings += netExpense;
-    else if (block === BudgetBlockType.VARIABLE) actual.variable += netExpense;
-    else if (tx.isFixedExpense) actual.fixed += netExpense;
-    else actual.variable += netExpense;
+    const budget = selected.find((item) => budgetMonthKey(item.month) === budgetMonthKey(tx.date)) ?? selected[0];
+    for (const entry of spendingEntries(tx)) {
+      const block = budget?.categories.find((item) => item.categoryId === entry.source.categoryId)?.block;
+      const key = block === BudgetBlockType.FIXED ? "fixed" : block === BudgetBlockType.EXTRA ? "extra" : block === BudgetBlockType.SAVINGS ? "savings" : block === BudgetBlockType.VARIABLE ? "variable" : entry.source.isFixedExpense ? "fixed" : "variable";
+      actual[key] = addMoney(actual[key], entry.amount);
+    }
   }
 
-  const totalLimit = fixedLimit + variableLimit + extraLimit;
-  const spent = actual.fixed + actual.variable + actual.extra;
+  const totalLimit = addMoney(fixedLimit, variableLimit, extraLimit);
+  const spent = addMoney(actual.fixed, actual.variable, actual.extra);
   return {
     configured: selected.length > 0,
     count: selected.length,
@@ -444,7 +380,7 @@ function buildBudgetSummary(budgets: BudgetWithCategories[], transactions: Trans
     totalLimit,
     spent,
     percent: totalLimit > 0 ? Math.round((spent / totalLimit) * 100) : 0,
-    remaining: totalLimit - spent,
+    remaining: addMoney(totalLimit, -spent),
     status: totalLimit <= 0 ? "empty" : spent > totalLimit ? "over" : spent / totalLimit >= 0.85 ? "warning" : "ok",
     blocks: {
       fixed: blockSummary(fixedLimit, actual.fixed),
@@ -475,10 +411,9 @@ function isSavingsCategory(category: Category | null) {
   return category?.type === "SAVINGS" || normalizeText(category?.name ?? "") === "ahorro";
 }
 
-function buildSavingsGoalSummary(goals: SavingsPlanningGoal[], transactions: TransactionWithCategory[], allocations: Map<string, number>, range: DashboardRange, period: DashboardPeriod, selectedAccount: Account | null) {
+export function buildSavingsGoalSummary(goals: SavingsPlanningGoal[], transactions: TransactionWithCategory[], range: DashboardRange, period: DashboardPeriod, _selectedAccount: Account | null) {
   const multiplier = periodTargetMultiplier(range, period, transactions);
-  const targetAmount = goals.reduce((sum, goal) => sum + toNumber(goal.targetAmount), 0) * multiplier;
-  const goalCategoryIds = new Set(goals.flatMap((goal) => goal.categories.map((category) => category.categoryId)));
+  const targetAmount = euros(goals.reduce((sum, goal) => sum + Math.round(cents(goal.targetAmount) * (goal.period === "ANNUAL" ? multiplier / 12 : goal.period === "CUSTOM" ? 1 : multiplier)), 0));
   const manualTransactions = new Map<string, boolean>();
 
   for (const goal of goals) {
@@ -487,37 +422,36 @@ function buildSavingsGoalSummary(goals: SavingsPlanningGoal[], transactions: Tra
     }
   }
 
-  let actualAmount = 0;
-  const countedInternalTransfers = new Set<string>();
+  const included: Array<TransactionWithCategory & { includeInternalTransfer: boolean }> = [];
   const countedTransactions = new Set<string>();
+  const matchesGoal = (tx: TransactionWithCategory, effectiveDate = tx.date) => goals.some((goal) => {
+    if (goal.accountId && goal.accountId !== tx.accountId) return false;
+    if (goal.period === "CUSTOM" && ((goal.periodStart && effectiveDate < goal.periodStart) || (goal.periodEnd && effectiveDate >= addDays(goal.periodEnd, 1)))) return false;
+    return goal.transactions.some((item) => item.transactionId === tx.id) || isSavingsCategory(tx.category) || goal.categories.some((item) => item.categoryId === tx.categoryId);
+  });
 
   for (const tx of transactions) {
     if (countedTransactions.has(tx.id)) continue;
     const isManual = manualTransactions.has(tx.id);
-    const matchesGoalCategory = tx.categoryId ? goalCategoryIds.has(tx.categoryId) : false;
-    const matchesSavingsCategory = isSavingsCategory(tx.category);
-    if (!isManual && !matchesGoalCategory && !matchesSavingsCategory) continue;
+    if (!matchesGoal(tx)) continue;
     if (isReimbursement(tx) || realIncome(tx) > 0) continue;
 
     if (tx.isInternalTransfer) {
       const includeInternalTransfer = manualTransactions.get(tx.id) ?? false;
       if (!isManual || !includeInternalTransfer) continue;
-      const groupKey = selectedAccount ? tx.id : tx.internalTransferGroupId ?? tx.id;
-      if (countedInternalTransfers.has(groupKey)) continue;
-      countedInternalTransfers.add(groupKey);
-      actualAmount += Math.abs(toNumber(tx.amount));
+      included.push({ ...tx, includeInternalTransfer: true });
       countedTransactions.add(tx.id);
       continue;
     }
 
     const expense = signedExpense(tx);
     if (expense <= 0) continue;
-    const netExpense = Math.max(0, expense - (allocations.get(tx.id) ?? 0));
-    if (netExpense <= 0) continue;
-    actualAmount += netExpense;
+    included.push({ ...tx, includeInternalTransfer: false });
     countedTransactions.add(tx.id);
   }
 
+  const refunded = sumMoney(transactions.flatMap((tx) => refundShares(tx).filter(({ expense }) => matchesGoal(expense as TransactionWithCategory, tx.date))), (share) => share.amount);
+  const actualAmount = addMoney(savingsContribution(included), -refunded);
   const progressPercent = targetAmount > 0 ? Math.round((actualAmount / targetAmount) * 100) : 0;
   return {
     configured: goals.length > 0,
@@ -540,14 +474,14 @@ function detailRow(tx: TransactionWithCategory) {
     account: tx.account?.name ?? "Cuenta",
     category: tx.category?.name ?? "Sin categoría",
     amount: toNumber(tx.amount),
-    type: tx.type,
+    type: accountingType(tx),
     isInternalTransfer: tx.isInternalTransfer,
     isReimbursement: isReimbursement(tx),
     linkedMovements: [...linkedExpenses, ...linkedReimbursements]
   };
 }
 
-export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month", periodMode: DashboardPeriodMode = "calendar") {
+export async function getDashboardData(userId: string, accountId?: string | null, period: DashboardPeriod = "last-imported-month", periodMode: DashboardPeriodMode = "calendar", includeDetails = false) {
   await ensureDefaultAccount(userId);
   const accounts = await prisma.account.findMany({ where: { userId }, orderBy: [{ isArchived: "asc" }, { createdAt: "asc" }] });
   const selectedAccount = accountId ? accounts.find((account) => account.id === accountId) ?? null : null;
@@ -562,15 +496,14 @@ export async function getDashboardData(userId: string, accountId?: string | null
   };
   const baseTransactionWhere = { userId, accountId: { in: accountFilter.length ? accountFilter : [""] } };
 
-  const [balanceTransactions, lastImport, recentImports, recurringPayments, latestTransaction] = await Promise.all([
-    prisma.transaction.findMany({ where: baseTransactionWhere, select: { accountId: true, amount: true, balance: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }),
-    prisma.importHistory.findFirst({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, orderBy: { createdAt: "desc" } }),
-    prisma.importHistory.findMany({ where: { userId, ...(selectedAccount ? { accountId: selectedAccount.id } : {}) }, include: { account: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+  const [balances, lastImport, recentImports, recurringPayments, latestTransaction] = await Promise.all([
+    getAccountBalances(userId, accountFilter),
+    prisma.importHistory.findFirst({ where: { userId, status: "COMPLETED", accountId: { in: accountFilter } }, select: { createdAt: true }, orderBy: { createdAt: "desc" } }),
+    prisma.importHistory.findMany({ where: { userId, accountId: { in: accountFilter } }, select: { id: true, fileName: true, createdAt: true, insertedRows: true, account: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 5 }),
     prisma.recurringPayment.findMany({
       where: { userId, status: RecurringPaymentStatus.ACTIVE, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : {}) },
       include: { account: { select: { id: true, name: true } }, category: { select: { id: true, name: true, color: true } } },
       orderBy: [{ nextChargeDate: "asc" }, { createdAt: "desc" }],
-      take: 50
     }),
     periodMode === "calendar" ? prisma.transaction.findFirst({ where: baseTransactionWhere, select: { date: true }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] }) : Promise.resolve(null)
   ]);
@@ -578,7 +511,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
   let range: DashboardRange;
   if (periodMode === "payroll") {
     const cycleTransactions = await prisma.transaction.findMany({
-      where: baseTransactionWhere,
+      where: { ...baseTransactionWhere, amount: { gt: 0 }, isInternalTransfer: false, reimbursementLinks: { none: {} }, OR: [{ category: { type: "INCOME" } }, { concept: { contains: "nom", mode: "insensitive" } }, { cleanDescription: { contains: "nom", mode: "insensitive" } }] },
       select: {
         id: true,
         date: true,
@@ -601,9 +534,14 @@ export async function getDashboardData(userId: string, accountId?: string | null
   const dateFilter = range.start || range.end ? { date: { ...(range.start ? { gte: range.start } : {}), ...(range.end ? { lt: range.end } : {}) } } : {};
   const transactions = await prisma.transaction.findMany({
     where: { ...baseTransactionWhere, ...dateFilter },
-    include: transactionInclude,
+    select: {
+      id: true, date: true, amount: true, balance: true, type: true, categoryId: true, accountId: true,
+      isInternalTransfer: true, isFixedExpense: true, internalTransferGroupId: true,
+      concept: true, cleanDescription: true, rawDescription: true,
+      ...transactionInclude
+    },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }]
-  });
+  }) as unknown as TransactionWithCategory[];
   const budgetCandidates = await prisma.monthlyBudget.findMany({
     where: { userId, ...(selectedAccount ? { OR: [{ accountId: selectedAccount.id }, { accountId: null }] } : { accountId: null }) },
     include: { categories: true, account: { select: { id: true, name: true } } },
@@ -620,34 +558,33 @@ export async function getDashboardData(userId: string, accountId?: string | null
       id: true,
       accountId: true,
       targetAmount: true,
+      period: true,
+      periodStart: true,
+      periodEnd: true,
       categories: { select: { categoryId: true } },
       transactions: { select: { transactionId: true, includeInternalTransfer: true } }
     },
     orderBy: { createdAt: "desc" }
   });
   const allocations = reimbursementAllocation(transactions);
-  const budgetSummary = buildBudgetSummary(selectBudgetsForDashboard(budgetCandidates, selectedAccount, range, period), transactions, allocations);
-  const savingsGoalSummary = buildSavingsGoalSummary(savingsGoals, transactions, allocations, range, period, selectedAccount);
+  const budgetSummary = buildBudgetSummary(selectBudgetsForDashboard(budgetCandidates, selectedAccount, range, period), transactions);
+  const savingsGoalSummary = buildSavingsGoalSummary(savingsGoals, transactions, range, period, selectedAccount);
   const incomeTransactions = transactions.filter((tx) => realIncome(tx) > 0);
   const expenseTransactions = transactions.filter((tx) => signedExpense(tx) > 0);
   const reimbursementTransactions = transactions.filter(isReimbursement);
   const internalTransactions = transactions.filter((tx) => tx.isInternalTransfer);
   const uncategorizedTransactions = transactions.filter((tx) => !tx.categoryId && !tx.isInternalTransfer);
 
-  const totalIncome = incomeTransactions.reduce((sum, tx) => sum + realIncome(tx), 0);
-  const grossExpenses = expenseTransactions.reduce((sum, tx) => sum + signedExpense(tx), 0);
-  const fixedExpenses = expenseTransactions.filter((tx) => tx.isFixedExpense).reduce((sum, tx) => sum + signedExpense(tx), 0);
-  const variableExpenses = expenseTransactions.filter((tx) => !tx.isFixedExpense).reduce((sum, tx) => sum + signedExpense(tx), 0);
-  const reimbursements = reimbursementTransactions.reduce((sum, tx) => sum + Math.abs(toNumber(tx.amount)), 0);
-  const netExpenses = grossExpenses - reimbursements;
-  const result = totalIncome - netExpenses;
-  const currentBalance = selectedAccount ? accountBalance(selectedAccount, balanceTransactions) : accounts.filter((account) => !account.isArchived).reduce((sum, account) => sum + accountBalance(account, balanceTransactions), 0);
+  const { income: totalIncome, grossExpenses, reimbursements, netExpenses, result } = ledgerTotals(transactions);
+  const fixedExpenses = sumMoney(expenseTransactions.filter((tx) => tx.isFixedExpense), signedExpense);
+  const variableExpenses = sumMoney(expenseTransactions.filter((tx) => !tx.isFixedExpense), signedExpense);
+  const currentBalance = sumMoney(balances, (row) => row.currentBalance);
   const transferTotal = internalTransferTotal(transactions, selectedAccount);
   const monthly = buildMonthlyRows(transactions);
   const categories = categoryRows(transactions);
-  const averageMonthlyExpense = monthly.length > 0 ? monthly.reduce((sum, row) => sum + row.netExpenses, 0) / monthly.length : 0;
+  const averageMonthlyExpense = monthly.length > 0 ? euros(Math.round(cents(netExpenses) / periodTargetMultiplier(range, period, transactions))) : 0;
   const currentMonthSavings = monthly.at(-1)?.savings ?? 0;
-  const topCategory = categories[0] ?? null;
+  const topCategory = categories.find((category) => category.value > 0) ?? null;
   const topCategoryTransactions = topCategory ? expenseTransactions.filter((tx) => (tx.category?.name ?? "Sin categoría") === topCategory.name) : [];
   const upcomingPayments = recurringPayments
     .map((payment) => {
@@ -668,7 +605,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
     .slice(0, 5);
 
   const netExpenseDetailIds = new Set([...expenseTransactions.map((tx) => tx.id), ...reimbursementTransactions.map((tx) => tx.id)]);
-  const details = {
+  const details: Record<DashboardDetailKey, ReturnType<typeof detailRow>[]> = includeDetails ? {
     realIncome: incomeTransactions.map(detailRow),
     grossExpenses: expenseTransactions.map(detailRow),
     reimbursements: reimbursementTransactions.map(detailRow),
@@ -678,12 +615,15 @@ export async function getDashboardData(userId: string, accountId?: string | null
     topCategory: topCategoryTransactions.map(detailRow),
     uncategorized: uncategorizedTransactions.map(detailRow),
     averageMonthlyNetExpense: transactions.filter((tx) => netExpenseDetailIds.has(tx.id)).map(detailRow)
-  };
+  } : { realIncome: [], grossExpenses: [], reimbursements: [], netExpenses: [], periodResult: [], internalTransfers: [], topCategory: [], uncategorized: [], averageMonthlyNetExpense: [] };
 
   return {
     period,
     periodMode,
     periodLabel: range.label,
+    targetMultiplier: periodTargetMultiplier(range, period, transactions),
+    range: { start: range.start?.toISOString() ?? null, end: range.end?.toISOString() ?? null, label: range.label },
+    balanceStatus: balances.some((row) => row.confirmedBalance === null) ? "calculado" : "saldo bancario y movimientos posteriores",
     accounts: accounts.map((account) => ({ id: account.id, name: account.name, isArchived: account.isArchived, color: account.color, type: account.type })),
     selectedAccount: selectedAccount ? { id: selectedAccount.id, name: selectedAccount.name, color: selectedAccount.color, type: selectedAccount.type } : null,
     metrics: {
@@ -718,7 +658,7 @@ export async function getDashboardData(userId: string, accountId?: string | null
     recommendations: recommendations(categories, monthly, uncategorizedTransactions.length),
     recentImports: recentImports.map((item) => ({ id: item.id, fileName: item.fileName, accountName: item.account.name, createdAt: item.createdAt.toISOString(), insertedRows: item.insertedRows })),
     upcomingPayments,
-    recentTransactions: transactions.slice(0, 8).map((tx) => ({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount), type: tx.type, category: tx.category?.name ?? "Sin categoría", account: tx.account?.name ?? "Cuenta", isReimbursement: isReimbursement(tx), linkedReimbursementAmount: allocations.get(tx.id) ?? 0 }))
+    recentTransactions: transactions.slice(0, 8).map((tx) => ({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount), type: accountingType(tx), category: tx.category?.name ?? "Sin categoría", account: tx.account?.name ?? "Cuenta", isReimbursement: isReimbursement(tx), linkedReimbursementAmount: allocations.get(tx.id) ?? 0 }))
   };
 }
 

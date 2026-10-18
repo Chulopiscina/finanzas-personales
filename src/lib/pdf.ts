@@ -1,3 +1,4 @@
+import { InputError } from "@/lib/input-error";
 import { classify, hashValue, parseSpanishAmount, parseSpanishDate, type ParsedMovement } from "@/lib/csv";
 
 type PdfStatementContext = {
@@ -149,7 +150,7 @@ function inferYear(month: number, context: PdfStatementContext) {
 function buildDate(year: number, month: number, day: number) {
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
-    throw new Error(`Fecha invalida en el PDF: ${day}/${month}/${year}`);
+    throw new InputError(`Fecha invalida en el PDF: ${day}/${month}/${year}`);
   }
 
   return date;
@@ -163,7 +164,7 @@ function parsePdfDate(record: string, context: PdfStatementContext) {
     const year = inferYear(month, context);
 
     if (!year) {
-      throw new Error("No he podido detectar el ano del extracto PDF.");
+      throw new InputError("No he podido detectar el ano del extracto PDF.");
     }
 
     return {
@@ -222,7 +223,7 @@ function parsePdfRecord(record: string, index: number, context: PdfStatementCont
   const balance = balanceMatch ? parseSpanishAmount(balanceMatch[0]) : null;
 
   if (!Number.isFinite(amount)) {
-    throw new Error(`Importe invalido en el movimiento PDF ${index + 1}.`);
+    throw new InputError(`Importe invalido en el movimiento PDF ${index + 1}.`);
   }
 
   const classification = classify(concept, amount);
@@ -264,7 +265,7 @@ function parseCaixaBankRecord(line: string, index: number): ParsedMovement | nul
   const balance = parseSpanishAmount(rowMatch[4]);
 
   if (!concept || !Number.isFinite(amount)) {
-    throw new Error(`Importe invalido en el movimiento CaixaBank ${index + 1}.`);
+    throw new InputError(`Importe invalido en el movimiento CaixaBank ${index + 1}.`);
   }
 
   const classification = classify(concept, amount);
@@ -289,11 +290,15 @@ function parseCaixaBankRecord(line: string, index: number): ParsedMovement | nul
 export function parseCaixaBankPdfText(text: string) {
   const lines = text.split(/\r?\n/).map(normalizeLine).filter(Boolean);
   const movements = lines
-    .map((line, index) => parseCaixaBankRecord(line, index))
+    .map((line, index) => {
+      const movement = parseCaixaBankRecord(line, index);
+      if (!movement && fullDatePattern.test(line) && /€/.test(line) && !/^(Periodo|Saldo|Fecha|IBAN)/i.test(line)) throw new InputError(`No se pudo leer completamente la fila ${index + 1} del extracto CaixaBank. No se importará parcialmente.`);
+      return movement;
+    })
     .filter((movement): movement is ParsedMovement => movement !== null);
 
   if (movements.length === 0) {
-    throw new Error("No he podido detectar movimientos en el PDF de CaixaBank. Debe contener columnas Concepto, Fecha, Importe y Saldo.");
+    throw new InputError("No he podido detectar movimientos en el PDF de CaixaBank. Debe contener columnas Concepto, Fecha, Importe y Saldo.");
   }
 
   return movements;
@@ -322,7 +327,7 @@ function parseINGRecord(line: string, index: number): ParsedMovement | null {
   const amount = parseSpanishAmount(moneyMatches[moneyMatches.length - 1][0]);
 
   if (!Number.isFinite(amount)) {
-    throw new Error(`Importe invalido en el movimiento ING ${index + 1}.`);
+    throw new InputError(`Importe invalido en el movimiento ING ${index + 1}.`);
   }
 
   const classification = classify(concept, amount);
@@ -359,11 +364,15 @@ export async function extractPdfText(buffer: Buffer) {
 export function parseINGPdfText(text: string) {
   const lines = text.split(/\r?\n/).map(normalizeLine).filter(Boolean);
   const movements = lines
-    .map((line, index) => parseINGRecord(line, index))
+    .map((line, index) => {
+      const movement = parseINGRecord(line, index);
+      if (!movement && fullDateAtStartPattern.test(line)) throw new InputError(`No se pudo leer completamente la fila ${index + 1} del extracto ING. No se importará parcialmente.`);
+      return movement;
+    })
     .filter((movement): movement is ParsedMovement => movement !== null);
 
   if (movements.length === 0) {
-    throw new Error("No he podido detectar movimientos en el PDF de ING. Debe contener filas con fecha, concepto, saldo e importe.");
+    throw new InputError("No he podido detectar movimientos en el PDF de ING. Debe contener filas con fecha, concepto, saldo e importe.");
   }
 
   return movements;
@@ -371,20 +380,28 @@ export function parseINGPdfText(text: string) {
 
 export async function parseBBVAPdf(buffer: Buffer) {
   const text = await extractPdfText(buffer);
+  return parseBBVAPdfText(text);
+}
+
+export function parseBBVAPdfText(text: string) {
   const lines = normalizePdfText(text);
 
   if (lines.length === 0) {
-    throw new Error("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
+    throw new InputError("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
   }
 
   const context = getStatementContext(text);
   const records = buildRecords(lines);
   const movements = records
-    .map((record, index) => parsePdfRecord(record, index, context))
+    .map((record, index) => {
+      const movement = parsePdfRecord(record, index, context);
+      if (!movement) throw new InputError(`No se pudo leer completamente el movimiento ${index + 1} del extracto BBVA.`);
+      return movement;
+    })
     .filter((movement): movement is ParsedMovement => movement !== null);
 
   if (movements.length === 0) {
-    throw new Error(
+    throw new InputError(
       "No he podido detectar movimientos en el PDF. Debe contener filas con fecha, concepto, importe y saldo."
     );
   }
@@ -404,7 +421,7 @@ export async function parseBankPdf(buffer: Buffer) {
 
   const lines = normalizePdfText(text);
   if (lines.length === 0) {
-    throw new Error("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
+    throw new InputError("El PDF no contiene texto extraible. Si es una imagen escaneada, hace falta OCR.");
   }
 
   const context = getStatementContext(text);
@@ -414,7 +431,7 @@ export async function parseBankPdf(buffer: Buffer) {
     .filter((movement): movement is ParsedMovement => movement !== null);
 
   if (movements.length === 0) {
-    throw new Error("No he podido detectar movimientos en el PDF. Debe contener filas con fecha, concepto, importe y saldo.");
+    throw new InputError("No he podido detectar movimientos en el PDF. Debe contener filas con fecha, concepto, importe y saldo.");
   }
 
   return movements;

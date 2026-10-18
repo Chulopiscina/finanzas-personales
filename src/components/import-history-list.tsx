@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import Link from "next/link";
 import { Download, Eye, FileText, Trash2 } from "lucide-react";
@@ -52,7 +53,7 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
 
     setPendingId(id);
     setError("");
-    const response = await fetch(`/api/imports/${id}`, {
+    const response = await request(`/api/imports/${id}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deleteTransactions })
@@ -66,8 +67,26 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
     setItems((current) => current.filter((item) => item.id !== id));
   }
 
+  function renderActions(item: ImportHistoryRow) {
+    return (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Link href={item.status === "PENDING" ? `/upload?previewId=${item.id}` : `/movements?importId=${item.id}`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Ver movimientos">
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                      </Link>
+                      <a href={`/api/imports/${item.id}/download`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Descargar archivo">
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                      </a>
+                      <Button type="button" variant="ghost" size="icon" onClick={() => void remove(item.id, false)} disabled={pendingId === item.id} title="Eliminar solo documento">
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="danger" size="icon" onClick={() => void remove(item.id, true)} disabled={pendingId === item.id} title="Eliminar documento y movimientos">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+    );
+  }
   return (
-    <section className="rounded-lg border border-border bg-card shadow-sm">
+    <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
       <div className="flex items-center gap-3 border-b border-border p-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-accent">
           <FileText className="h-5 w-5" aria-hidden="true" />
@@ -83,7 +102,11 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
       {items.length === 0 ? (
         <p className="p-5 text-sm text-muted-foreground">Todavía no has subido ningún extracto.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <div className="movement-mobile space-y-3 p-4">
+          {items.map((item) => <article className="space-y-3 rounded-lg border border-border p-4" key={item.id}><div><p className="break-words font-medium">{item.fileName}</p><p className="mt-1 text-xs text-muted-foreground">{item.account.name} · {formatDate(item.createdAt)} · {statusLabel(item.status)}</p></div><div className="grid grid-cols-2 gap-2 text-sm"><span>Movimientos: {item.insertedRows} / {item.rowCount}</span><span className="text-right">{formatBytes(item.fileSize)}</span><span className="text-success">Ingresos {formatCurrency(toNumber(item.incomeTotal))}</span><span className="text-right text-danger">Gastos {formatCurrency(toNumber(item.expenseTotal))}</span></div>{renderActions(item)}</article>)}
+        </div>
+        <div className="movement-desktop overflow-x-auto">
           <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
               <tr>
@@ -113,26 +136,14 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
                   <td className="whitespace-nowrap px-4 py-3 text-right text-danger">{formatCurrency(toNumber(item.expenseTotal))}</td>
                   <td className="px-4 py-3 text-muted-foreground">{statusLabel(item.status)}</td>
                   <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-2">
-                      <Link href={`/movements?importId=${item.id}`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Ver movimientos">
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      </Link>
-                      <a href={`/api/imports/${item.id}/download`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Descargar archivo">
-                        <Download className="h-4 w-4" aria-hidden="true" />
-                      </a>
-                      <Button type="button" variant="ghost" size="icon" onClick={() => void remove(item.id, false)} disabled={pendingId === item.id} title="Eliminar solo documento">
-                        <FileText className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="danger" size="icon" onClick={() => void remove(item.id, true)} disabled={pendingId === item.id} title="Eliminar documento y movimientos">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {renderActions(item)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

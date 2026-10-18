@@ -1,3 +1,4 @@
+import { InputError } from "@/lib/input-error";
 ﻿import { NextResponse } from "next/server";
 import { PlanningGoalType, PlanningPeriod, PlanningStatus } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
@@ -24,7 +25,7 @@ async function validateRelations(userId: string, accountId?: string | null, cate
   if (accountId) {
     const account = await prisma.account.findUnique({ where: { id: accountId } });
     if (!account || account.userId !== userId || account.isArchived) {
-      throw new Error("La cuenta seleccionada no es válida.");
+      throw new InputError("La cuenta seleccionada no es válida.");
     }
   }
 
@@ -34,7 +35,7 @@ async function validateRelations(userId: string, accountId?: string | null, cate
       select: { id: true }
     });
     if (categories.length !== new Set(categoryIds).size) {
-      throw new Error("Alguna categoría seleccionada no es válida.");
+      throw new InputError("Alguna categoría seleccionada no es válida.");
     }
   }
 }

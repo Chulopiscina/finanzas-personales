@@ -1,6 +1,6 @@
 ﻿import { AccountsManager } from "@/components/accounts-manager";
 import { getSessionUser } from "@/lib/auth";
-import { accountBalance, ensureDefaultAccount, toNumber } from "@/lib/finance";
+import { getAccountBalances, ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 export default async function AccountsPage() {
@@ -10,18 +10,12 @@ export default async function AccountsPage() {
   }
 
   await ensureDefaultAccount(session.user.id);
-  const [accounts, transactions] = await Promise.all([
-    prisma.account.findMany({
+  const accounts = await prisma.account.findMany({
       where: { userId: session.user.id },
       orderBy: [{ isArchived: "asc" }, { createdAt: "asc" }],
       include: { _count: { select: { transactions: true, imports: true } } }
-    }),
-    prisma.transaction.findMany({
-      where: { userId: session.user.id },
-      select: { accountId: true, amount: true, balance: true, date: true, createdAt: true },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }]
-    })
-  ]);
+    });
+  const balances = await getAccountBalances(session.user.id, accounts.map((account) => account.id));
 
   const preparedAccounts = accounts.map((account) => {
     const initialBalance = toNumber(account.initialBalance);
@@ -30,7 +24,9 @@ export default async function AccountsPage() {
       name: account.name,
       type: account.type,
       initialBalance,
-      currentBalance: accountBalance(account, transactions),
+      currentBalance: toNumber(balances.find((row) => row.id === account.id)?.currentBalance),
+      confirmedBalance: balances.find((row) => row.id === account.id)?.confirmedBalance == null ? null : toNumber(balances.find((row) => row.id === account.id)?.confirmedBalance),
+      confirmedAt: balances.find((row) => row.id === account.id)?.confirmedAt?.toISOString() ?? null,
       currency: account.currency,
       color: account.color,
       icon: account.icon,

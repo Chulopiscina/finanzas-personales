@@ -1,6 +1,8 @@
 "use client";
+import { request } from "@/lib/client-request";
 
-import { ChangeEvent, DragEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, FileSearch, FileUp, Loader2, RotateCcw, UploadCloud, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -105,6 +107,8 @@ function nullableCurrency(value: number | null) {
 }
 
 export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
+  const searchParams = useSearchParams();
+  const [previewPage, setPreviewPage] = useState(1);
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -117,8 +121,30 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
   const [bankFormat, setBankFormat] = useState("AUTO");
   const [forceLowConfidence, setForceLowConfidence] = useState(false);
   const selectedAccount = useMemo(() => accounts.find((account) => account.id === accountId), [accounts, accountId]);
+  const resumeId = searchParams.get("previewId");
+  useEffect(() => {
+    if (!resumeId) return;
+    const controller = new AbortController();
+    void request(`/api/imports/${resumeId}/preview`, { signal: controller.signal }).then(async (response) => {
+      const payload = parseImportResponse(await response.text());
+      if (controller.signal.aborted) return;
+      if (!response.ok || !payload.preview) { setError(payload.error ?? "No se pudo abrir la revisión."); return; }
+      setPreview(payload.preview); setAccountId(accounts.find((account) => account.name === payload.preview?.accountName)?.id ?? "");
+    });
+    return () => controller.abort();
+  }, [resumeId, accounts]);
+  async function changePreviewPage(page: number) {
+    if (!preview) return;
+    setLoading(true);
+    const response = await request(`/api/imports/${preview.id}/preview?page=${page}`);
+    const payload = parseImportResponse(await response.text());
+    if (response.ok && payload.preview) { setPreview(payload.preview); setPreviewPage(page); }
+    else setError(payload.error ?? "No se pudo cargar esa página.");
+    setLoading(false);
+  }
 
   async function analyze(file: File, format = bankFormat) {
+    if (file.size > 4 * 1024 * 1024) { setError("El archivo no puede superar los 4 MB."); return; }
     if (!accountId) {
       setError("Selecciona una cuenta antes de analizar el extracto.");
       return;
@@ -136,11 +162,12 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
     formData.append("file", file);
     formData.append("accountId", accountId);
     formData.append("bankFormat", format);
+    if (preview?.id) formData.append("previousImportId", preview.id);
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 60000);
 
     try {
-      const response = await fetch("/api/imports", {
+      const response = await request("/api/imports", {
         method: "POST",
         body: formData,
         signal: controller.signal
@@ -159,6 +186,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
       }
 
       setPreview(payload.preview);
+      setPreviewPage(1);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setError("El analisis esta tardando demasiado. Prueba otra vez o sube un PDF mas pequeno.");
@@ -182,7 +210,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
     setNotice("");
 
     try {
-      const response = await fetch(`/api/imports/${preview.id}/confirm`, {
+      const response = await request(`/api/imports/${preview.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force: forceLowConfidence })
@@ -215,7 +243,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
     setNotice("");
 
     try {
-      const response = await fetch(`/api/imports/${preview.id}/cancel`, { method: "POST" });
+      const response = await request(`/api/imports/${preview.id}/cancel`, { method: "POST" });
       const payload = parseImportResponse(await response.text());
       if (!response.ok) {
         setError(payload.error ?? "No se pudo cancelar la importacion.");
@@ -304,7 +332,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
       {notice ? <div className="rounded-lg border border-success/30 bg-success/10 p-4 text-sm text-success">{notice}</div> : null}
 
       {preview ? (
-        <section className="space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm">
+        <section className="movement-layout space-y-4 rounded-lg border border-border bg-card p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -378,7 +406,14 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
             </div>
           )}
 
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <span>{preview.rowCount} movimientos · Página {previewPage} / {Math.max(1, Math.ceil(preview.rowCount / 100))}</span>
+            <div className="flex gap-2"><Button variant="secondary" size="sm" disabled={loading || previewPage <= 1} onClick={() => void changePreviewPage(previewPage - 1)}>Anterior</Button><Button variant="secondary" size="sm" disabled={loading || previewPage >= Math.ceil(preview.rowCount / 100)} onClick={() => void changePreviewPage(previewPage + 1)}>Siguiente</Button></div>
+          </div>
+          <div className="movement-mobile space-y-2">
+            {preview.movements.map((movement, index) => <article className="rounded-lg border border-border p-3 text-sm" key={index}><div className="flex justify-between gap-3"><span className="text-muted-foreground">{formatDate(movement.date)}</span><strong className={movement.amount < 0 ? "text-danger" : "text-success"}>{formatCurrency(movement.amount)}</strong></div><p className="my-2 break-words">{movement.concept}</p><p className="text-xs text-muted-foreground">{typeLabels[movement.type]} · {movement.categoryName} · Saldo {nullableCurrency(movement.balance)}</p></article>)}
+          </div>
+          <div className="movement-desktop overflow-x-auto rounded-lg border border-border">
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>

@@ -22,11 +22,10 @@ export function nextRecurringPaymentDate(date: Date, frequency: RecurringPayment
   if (frequency === RecurringPaymentFrequency.ONCE || frequency === RecurringPaymentFrequency.OTHER) return null;
 
   const months = frequency === RecurringPaymentFrequency.MONTHLY ? 1 : frequency === RecurringPaymentFrequency.QUARTERLY ? 3 : 12;
-  let guard = 0;
-  while (next < today && guard < 240) {
-    next = addMonthsClamped(next, months);
-    guard += 1;
-  }
+  const elapsed = (today.getUTCFullYear() - next.getUTCFullYear()) * 12 + today.getUTCMonth() - next.getUTCMonth();
+  const steps = Math.max(1, Math.floor(elapsed / months));
+  next = addMonthsClamped(date, steps * months);
+  if (next < today) next = addMonthsClamped(date, (steps + 1) * months);
 
   return next >= today ? next : null;
 }

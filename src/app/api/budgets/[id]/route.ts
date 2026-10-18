@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { budgetInclude, monthStart, serializeBudget, validateBudgetBody, type BudgetBody } from "@/lib/budgets";
+import { budgetInclude, monthStart, serializeBudget, validateBudgetBody, lockBudgets, type BudgetBody } from "@/lib/budgets";
+import { InputError } from "@/lib/input-error";
 import { prisma } from "@/lib/prisma";
 
 async function authorize(id: string, userId: string) {
@@ -20,6 +21,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (duplicate) return NextResponse.json({ error: "Ya existe otro presupuesto para ese mes y cuenta." }, { status: 400 });
 
     const budget = await prisma.$transaction(async (tx) => {
+      await lockBudgets(tx, session.user.id);
+      if (await tx.monthlyBudget.findFirst({ where: { userId: session.user.id, accountId: data.accountId, month: data.month, id: { not: id } } })) throw new InputError("Ya existe otro presupuesto para ese mes y cuenta.");
       await tx.monthlyBudgetCategory.deleteMany({ where: { budgetId: id } });
       await tx.monthlyBudgetCategory.createMany({ data: categoryRows.map((row) => ({ ...row, budgetId: id })) });
       return tx.monthlyBudget.update({ where: { id }, data, include: budgetInclude });
@@ -41,7 +44,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const duplicate = await prisma.monthlyBudget.findFirst({ where: { userId: session.user.id, accountId: existing.accountId, month: nextMonth } });
     if (duplicate) return NextResponse.json({ error: "Ya existe un presupuesto para ese mes y cuenta." }, { status: 400 });
 
-    const budget = await prisma.monthlyBudget.create({
+    const budget = await prisma.$transaction(async (tx) => {
+      await lockBudgets(tx, session.user.id);
+      if (await tx.monthlyBudget.findFirst({ where: { userId: session.user.id, accountId: existing.accountId, month: nextMonth } })) throw new InputError("Ya existe un presupuesto para ese mes y cuenta.");
+      return tx.monthlyBudget.create({
       data: {
         userId: session.user.id,
         accountId: existing.accountId,
@@ -54,6 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         categories: { createMany: { data: existing.categories.map((item) => ({ categoryId: item.categoryId, block: item.block })) } }
       },
       include: budgetInclude
+      });
     });
     return NextResponse.json({ budget: serializeBudget(budget) });
   } catch (error) {

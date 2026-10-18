@@ -31,13 +31,14 @@ async function upsertGlobalCategory(name: string, color: string, icon: string, t
 }
 
 async function main() {
-  for (const [name, color, icon, type] of defaultCategories) {
-    await upsertGlobalCategory(name, color, icon, type);
+  const email = process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase();
+  const name = process.env.INITIAL_ADMIN_NAME?.trim();
+  const password = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!email || !name || !password) throw new Error("Define INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_NAME e INITIAL_ADMIN_PASSWORD de forma explícita.");
+  if (password.length < 12 || Buffer.byteLength(password) > 72) throw new Error("La clave inicial debe tener al menos 12 caracteres y como máximo 72 bytes.");
+  for (const [categoryName, color, icon, type] of defaultCategories) {
+    await upsertGlobalCategory(categoryName, color, icon, type);
   }
-
-  const email = process.env.INITIAL_ADMIN_EMAIL ?? "oriolcasaponsaprat@gmail.com";
-  const password = process.env.INITIAL_ADMIN_PASSWORD ?? "Pelota.1";
-  const name = process.env.INITIAL_ADMIN_NAME ?? "Oriol Casa Ponsa Prat";
   const passwordHash = await bcrypt.hash(password, 12);
 
   const admin = await prisma.user.upsert({
@@ -48,7 +49,7 @@ async function main() {
       passwordHash,
       role: Role.ADMIN
     },
-    update: { name, role: Role.ADMIN }
+    update: {}
   });
 
   await prisma.account.upsert({

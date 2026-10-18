@@ -1,4 +1,4 @@
-import { DashboardCharts } from "@/components/dashboard-charts";
+import { DashboardChartsLazy } from "@/components/dashboard-charts-lazy";
 import { getSessionUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/finance";
 
@@ -16,7 +16,7 @@ export default async function StatisticsPage() {
         <h1 className="text-2xl font-semibold tracking-normal text-foreground">Estadísticas</h1>
         <p className="text-sm text-muted-foreground">Evolución, categorías y comparativa mensual</p>
       </header>
-      <DashboardCharts categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
+      <DashboardChartsLazy categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
     </div>
   );
 }

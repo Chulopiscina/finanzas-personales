@@ -2,6 +2,7 @@ import { ImportHistoryList } from "@/components/import-history-list";
 import { ProfileForm } from "@/components/profile-form";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { statementListSelect, statementDto } from "@/lib/statement-dto";
 
 export default async function ProfilePage() {
   const session = await getSessionUser();
@@ -13,7 +14,7 @@ export default async function ProfilePage() {
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
     take: 10,
-    include: { account: { select: { id: true, name: true } } }
+    select: statementListSelect
   });
 
   return (
@@ -23,7 +24,7 @@ export default async function ProfilePage() {
         <p className="text-sm text-muted-foreground">Datos personales, contraseña y últimos extractos</p>
       </header>
       <ProfileForm user={session.user} />
-      <ImportHistoryList imports={imports} />
+      <ImportHistoryList imports={imports.map(statementDto)} />
     </div>
   );
 }

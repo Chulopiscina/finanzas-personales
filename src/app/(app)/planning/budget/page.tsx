@@ -1,51 +1,17 @@
-import { BudgetBlockType, TransactionType } from "@prisma/client";
 import { BudgetManager } from "@/components/budget-manager";
 import { getSessionUser } from "@/lib/auth";
-import { toNumber } from "@/lib/finance";
+import { buildBudgetSummary, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
 function addMonths(date: Date, months: number) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
 }
 
-function blockProgress(limit: number, actual: number) {
-  return { limit, actual, percent: limit > 0 ? Math.round((actual / limit) * 100) : 0, remaining: limit - actual };
-}
 
-async function budgetProgress(budget: any) {
-  const start = budget.month;
-  const end = addMonths(start, 1);
-  const transactions = await prisma.transaction.findMany({
-    where: {
-      userId: budget.userId,
-      date: { gte: start, lt: end },
-      isInternalTransfer: false,
-      type: TransactionType.EXPENSE,
-      ...(budget.accountId ? { accountId: budget.accountId } : {})
-    },
-    include: { reimbursedByLinks: { include: { reimbursement: true } } }
-  });
-  const categoryBlocks = new Map<string, BudgetBlockType>();
-  for (const item of budget.categories) categoryBlocks.set(item.categoryId, item.block);
-  const actual = { fixed: 0, variable: 0, extra: 0, savings: 0 };
-  for (const tx of transactions) {
-    const reimbursements = tx.reimbursedByLinks.reduce((sum, link) => sum + Math.abs(toNumber(link.reimbursement.amount)), 0);
-    const value = Math.max(0, Math.abs(toNumber(tx.amount)) - reimbursements);
-    const block = tx.categoryId ? categoryBlocks.get(tx.categoryId) : null;
-    if (block === BudgetBlockType.FIXED) actual.fixed += value;
-    else if (block === BudgetBlockType.EXTRA) actual.extra += value;
-    else if (block === BudgetBlockType.SAVINGS) actual.savings += value;
-    else if (block === BudgetBlockType.VARIABLE) actual.variable += value;
-    else if (tx.isFixedExpense) actual.fixed += value;
-    else actual.variable += value;
-  }
-  const fixed = blockProgress(toNumber(budget.fixedLimit), actual.fixed);
-  const variable = blockProgress(toNumber(budget.variableLimit), actual.variable);
-  const extra = blockProgress(toNumber(budget.extraLimit), actual.extra);
-  const savings = blockProgress(toNumber(budget.savingsGoal), actual.savings);
-  const totalLimit = fixed.limit + variable.limit + extra.limit;
-  const spent = fixed.actual + variable.actual + extra.actual;
-  return { fixed, variable, extra, savings, totalLimit, spent, percent: totalLimit > 0 ? Math.round((spent / totalLimit) * 100) : 0, remaining: totalLimit - spent };
+function budgetProgress(budget: Parameters<typeof buildBudgetSummary>[0][number], transactions: Parameters<typeof buildBudgetSummary>[1]) {
+  const rows = transactions.filter((tx) => tx.date >= budget.month && tx.date < addMonths(budget.month, 1) && (!budget.accountId || budget.accountId === tx.accountId));
+  const summary = buildBudgetSummary([budget], rows);
+  return { ...summary.blocks, totalLimit: summary.totalLimit, spent: summary.spent, percent: summary.percent, remaining: summary.remaining };
 }
 
 export default async function BudgetPage() {
@@ -62,7 +28,11 @@ export default async function BudgetPage() {
     prisma.category.findMany({ where: { OR: [{ userId: null }, { userId: session.user.id }], isArchived: false }, select: { id: true, name: true, color: true }, orderBy: { name: "asc" } })
   ]);
 
-  const rows = await Promise.all(budgets.map(async (budget) => ({
+  const transactions = budgets.length ? await prisma.transaction.findMany({
+    where: { userId: session.user.id, accountId: { in: accounts.map((account) => account.id) }, date: { gte: budgets.at(-1)!.month, lt: addMonths(budgets[0].month, 1) } },
+    include: { category: true, reimbursementLinks: { include: { expense: { include: { category: true } } } } }
+  }) : [];
+  const rows = budgets.map((budget) => ({
     id: budget.id,
     month: budget.month.toISOString(),
     accountId: budget.accountId ?? "",
@@ -73,8 +43,8 @@ export default async function BudgetPage() {
     extraLimit: toNumber(budget.extraLimit),
     savingsGoal: toNumber(budget.savingsGoal),
     categories: budget.categories.map((item) => ({ block: item.block, categoryId: item.categoryId })),
-    progress: await budgetProgress(budget)
-  })));
+    progress: budgetProgress(budget, transactions)
+  }));
 
   return (
     <div className="space-y-6">

@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import { Archive, Pencil, Plus, Save, X } from "lucide-react";
 import { useState } from "react";
@@ -44,7 +45,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
 
   async function createCategory() {
     setMessage("");
-    const response = await fetch("/api/categories", {
+    const response = await request("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form)
@@ -70,7 +71,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
 
   async function saveCategory(category: CategoryRow) {
     setMessage("");
-    const response = await fetch(`/api/categories/${category.id}`, {
+    const response = await request(`/api/categories/${category.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm)
@@ -89,7 +90,7 @@ export function CategoriesManager({ initialCategories }: { initialCategories: Ca
       setMessage("Las categorías base no se pueden archivar desde aquí.");
       return;
     }
-    const response = await fetch(`/api/categories/${category.id}`, { method: "DELETE" });
+    const response = await request(`/api/categories/${category.id}`, { method: "DELETE" });
     const payload = await response.json();
     if (!response.ok) {
       setMessage(payload.error ?? "No se pudo archivar la categoría.");

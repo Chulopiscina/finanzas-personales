@@ -1,3 +1,4 @@
+import { InputError } from "@/lib/input-error";
 import { createHash } from "node:crypto";
 import { TransactionType } from "@prisma/client";
 import Papa from "papaparse";
@@ -57,11 +58,10 @@ function normalizeHeader(header: string) {
 }
 
 function pick(row: Record<string, unknown>, names: string[]) {
-  for (const [key, value] of Object.entries(row)) {
-    const normalized = normalizeHeader(key);
-    if (names.includes(normalized) && value !== undefined && value !== null) {
-      return String(value).trim();
-    }
+  const columns = new Map(Object.entries(row).map(([key, value]) => [normalizeHeader(key), value]));
+  for (const name of names) {
+    const value = columns.get(name);
+    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
   }
 
   return "";
@@ -112,15 +112,21 @@ export function parseSpanishDate(value: string) {
     const day = Number(european[1]);
     const month = Number(european[2]) - 1;
     const year = Number(european[3].length === 2 ? `20${european[3]}` : european[3]);
-    return new Date(Date.UTC(year, month, day));
+    const date = new Date(Date.UTC(year, month, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) throw new InputError(`Fecha inválida: ${value}`);
+    return date;
   }
 
+  const isoDay = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:T|$)/);
+  if (!isoDay) throw new InputError(`Fecha inválida: ${value}`);
+  const checked = new Date(Date.UTC(Number(isoDay[1]), Number(isoDay[2]) - 1, Number(isoDay[3])));
+  if (checked.getUTCMonth() !== Number(isoDay[2]) - 1 || checked.getUTCDate() !== Number(isoDay[3])) throw new InputError(`Fecha inválida: ${value}`);
   const iso = new Date(cleaned);
   if (!Number.isNaN(iso.getTime())) {
-    return iso;
+    return checked;
   }
 
-  throw new Error(`Fecha inv\u00e1lida: ${value}`);
+  throw new InputError(`Fecha inv\u00e1lida: ${value}`);
 }
 
 export function hashValue(value: string) {
@@ -131,12 +137,12 @@ export function classify(concept: string, amount: number) {
   const transferRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.transfers);
   const payrollRule = categoryRules.find(([name]) => name === CATEGORY_NAMES.payroll);
 
-  if (isPayrollText(concept) || payrollRule?.[1].test(concept)) {
+  if (amount > 0 && (isPayrollText(concept) || payrollRule?.[1].test(concept))) {
     return payrollClassification();
   }
 
   if (transferRule?.[1].test(concept)) {
-    return { categoryName: CATEGORY_NAMES.transfers, type: TransactionType.TRANSFER };
+    return { categoryName: CATEGORY_NAMES.transfers, type: amount >= 0 ? TransactionType.INCOME : TransactionType.EXPENSE };
   }
 
   const matched = categoryRules.find(([, rule]) => rule.test(concept));
@@ -175,7 +181,7 @@ function parseCsvRows(text: string) {
   });
 
   if (result.errors.length > 0) {
-    throw new Error(`CSV inv\u00e1lido: ${result.errors[0]?.message ?? "no se pudo leer el archivo"}`);
+    throw new InputError(`CSV inv\u00e1lido: ${result.errors[0]?.message ?? "no se pudo leer el archivo"}`);
   }
 
   return result.data;
@@ -193,7 +199,7 @@ export function parseTradeRepublicCsv(text: string) {
   }
 
   if (!isTradeRepublicCsv(rows)) {
-    throw new Error("El CSV no tiene el formato esperado de Trade Republic.");
+    throw new InputError("El CSV no tiene el formato esperado de Trade Republic.");
   }
 
   return rows.map((row, index) => {
@@ -206,13 +212,13 @@ export function parseTradeRepublicCsv(text: string) {
     const concept = [name, description || typeValue].filter(Boolean).join(" - ").trim();
 
     if (!dateValue || !amountValue || !concept) {
-      throw new Error(`Faltan columnas obligatorias de Trade Republic en la fila ${index + 2}.`);
+      throw new InputError(`Faltan columnas obligatorias de Trade Republic en la fila ${index + 2}.`);
     }
 
     const date = parseSpanishDate(dateValue);
     const amount = parseSpanishAmount(amountValue);
     if (!Number.isFinite(amount)) {
-      throw new Error(`Importe inv\u00e1lido en la fila ${index + 2}.`);
+      throw new InputError(`Importe inv\u00e1lido en la fila ${index + 2}.`);
     }
 
     const classification = classify(concept, amount);
@@ -245,7 +251,7 @@ export function parseBBVACsv(text: string) {
     const balanceValue = pick(row, ["saldo", "saldo disponible", "saldo contable"]);
 
     if (!dateValue || !concept || !amountValue) {
-      throw new Error(`Faltan columnas obligatorias en la fila ${index + 2}.`);
+      throw new InputError(`Faltan columnas obligatorias en la fila ${index + 2}.`);
     }
 
     const date = parseSpanishDate(dateValue);
@@ -253,7 +259,7 @@ export function parseBBVACsv(text: string) {
     const balance = balanceValue ? parseSpanishAmount(balanceValue) : null;
 
     if (!Number.isFinite(amount)) {
-      throw new Error(`Importe inv\u00e1lido en la fila ${index + 2}.`);
+      throw new InputError(`Importe inv\u00e1lido en la fila ${index + 2}.`);
     }
 
     const classification = classify(concept, amount);

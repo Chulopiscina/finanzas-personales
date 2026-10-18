@@ -1,7 +1,9 @@
+import { InputError } from "@/lib/input-error";
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { Role, type User } from "@prisma/client";
 import { cookies, headers } from "next/headers";
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { ACCESS_COOKIE, SESSION_COOKIE, signAccessToken } from "@/lib/jwt";
 
@@ -26,12 +28,12 @@ export function verifyPassword(password: string, passwordHash: string) {
 }
 
 export function assertPasswordStrength(password: string) {
-  if (password.length < 8) {
-    throw new Error("La contraseña debe tener al menos 8 caracteres.");
+  if (password.length < 12 || Buffer.byteLength(password) > 72) {
+    throw new InputError("La contraseña debe tener entre 12 caracteres y 72 bytes.");
   }
 
   if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
-    throw new Error("La contraseña debe combinar mayúsculas, minúsculas y números.");
+    throw new InputError("La contraseña debe combinar mayúsculas, minúsculas y números.");
   }
 }
 
@@ -116,11 +118,11 @@ export async function destroyCurrentSession() {
   cookieStore.delete(ACCESS_COOKIE);
 }
 
-export async function getSessionUser() {
+export const getSessionUser = cache(async function getSessionUser() {
   const cookieStore = await cookies();
   const rawToken = cookieStore.get(SESSION_COOKIE)?.value;
 
-  if (!rawToken) {
+  if (!rawToken || !cookieStore.get(ACCESS_COOKIE)?.value) {
     return null;
   }
 
@@ -137,7 +139,7 @@ export async function getSessionUser() {
     sessionId: session.id,
     user: publicUser(session.user)
   };
-}
+});
 
 export async function requireUser() {
   const session = await getSessionUser();

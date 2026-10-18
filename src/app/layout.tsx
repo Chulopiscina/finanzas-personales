@@ -3,7 +3,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Finanzas Personales",
-  description: "Dashboard privado para finanzas personales con importación CSV BBVA."
+  description: "Finanzas personales privadas con importación de extractos bancarios.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "Finanzas personales",
+  appleWebApp: { capable: true, title: "Finanzas", statusBarStyle: "default" },
+  icons: { icon: "/icon-192.png", apple: "/icon-180.png" },
+  robots: { index: false, follow: false }
 };
 
 export const viewport: Viewport = {

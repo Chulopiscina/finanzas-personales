@@ -1,8 +1,10 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import Link from "next/link";
 import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Goal, Home, Landmark, PiggyBank, ReceiptText, ShoppingBag, WalletCards, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -52,7 +54,7 @@ function FinanceCard({ title, value, icon, tone, indicator = "—", onClick, lar
       </div>
       <div className="mt-auto pt-7">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
-        <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", large ? "text-4xl" : "text-3xl")}>{value}</p>
+        <p className={cn("mt-2 break-words font-semibold tabular-nums tracking-normal text-card-foreground", large ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl")}>{value}</p>
       </div>
     </>
   );
@@ -104,7 +106,7 @@ function BudgetDashboardCard({ budget }: { budget: DashboardData["budget"] }) {
     return <PreparedFeatureCard title="Presupuesto mensual" subtitle="Sin presupuesto configurado" buttonLabel="Configurar presupuesto" href="/planning/budget" icon="budget" tone="orange" />;
   }
 
-  const statusText = budget.status === "over" ? "Te est?s pasando" : budget.status === "warning" ? "Cerca del l?mite" : "Vas bien";
+  const statusText = budget.status === "over" ? "Te estás pasando" : budget.status === "warning" ? "Cerca del límite" : "Vas bien";
   const statusTone = budget.status === "over" ? "text-danger" : budget.status === "warning" ? "text-warning" : "text-success";
   const rows = [
     ["Gastos fijos", budget.blocks.fixed],
@@ -215,8 +217,8 @@ function PreparedFeatureCard({ title, subtitle, buttonLabel, href, icon, tone }:
 
 function paymentDaysLabel(days: number) {
   if (days === 0) return "Hoy";
-  if (days === 1) return "Falta 1 d?a";
-  return `Faltan ${days} d?as`;
+  if (days === 1) return "Falta 1 día";
+  return `Faltan ${days} días`;
 }
 
 function UpcomingPaymentsCard({ payments }: { payments: DashboardData["upcomingPayments"] }) {
@@ -230,11 +232,11 @@ function UpcomingPaymentsCard({ payments }: { payments: DashboardData["upcomingP
             <ReceiptText className="h-5 w-5" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Pr?ximos pagos</p>
+            <p className="text-sm font-medium text-muted-foreground">Próximos pagos</p>
             <p className="mt-1 text-2xl font-semibold text-card-foreground">{hasPayments ? `${payments.length} previstos` : "No hay pagos recurrentes"}</p>
           </div>
         </div>
-        <Link href="/planning/recurring-payments" className={actionLinkClass}>A?adir pago recurrente</Link>
+        <Link href="/planning/recurring-payments" className={actionLinkClass}>Añadir pago recurrente</Link>
       </div>
       {hasPayments ? (
         <div className="mt-5 grid gap-3 lg:grid-cols-3">
@@ -266,7 +268,32 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
   const expenseBase = data.metrics.grossExpenses > 0 ? data.metrics.grossExpenses : 0;
   const fixedExpensePercent = expenseBase > 0 ? Math.round((data.metrics.fixedExpenses / expenseBase) * 100) : 0;
   const variableExpensePercent = expenseBase > 0 ? Math.round((data.metrics.variableExpenses / expenseBase) * 100) : 0;
-  const details = detailKey ? data.details[detailKey] : [];
+  const [details, setDetails] = useState<DashboardData["details"]["realIncome"]>([]);
+  const [detailPage, setDetailPage] = useState(1);
+  const [detailTotal, setDetailTotal] = useState(0);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  useDialogFocus(Boolean(detailKey), () => setDetailKey(null));
+  useEffect(() => { setDetailPage(1); }, [detailKey]);
+  useEffect(() => {
+    if (!detailKey) return;
+    const controller = new AbortController();
+    setDetailLoading(true); setDetailError("");
+    const params = new URLSearchParams({ kind: detailKey, page: String(detailPage), category: data.metrics.topCategory });
+    const target = new URLSearchParams(window.location.search).get("userId");
+    if (target) params.set("userId", target);
+    if (data.selectedAccount) params.set("accountId", data.selectedAccount.id);
+    if (data.range.start) params.set("start", data.range.start);
+    if (data.range.end) params.set("end", data.range.end);
+    void request(`/api/dashboard/details?${params}`, { signal: controller.signal }).then(async (response) => {
+      const payload = await response.json();
+      if (controller.signal.aborted) return;
+      if (response.ok) { setDetails(payload.rows); setDetailTotal(payload.total); }
+      else setDetailError(payload.error ?? "No se pudo cargar el detalle.");
+      setDetailLoading(false);
+    });
+    return () => controller.abort();
+  }, [detailKey, detailPage, data.selectedAccount, data.range.start, data.range.end, data.metrics.topCategory]);
   const detailTitle = useMemo(() => {
     const titles: Record<DashboardDetailKey, string> = {
       realIncome: "Ingresos",
@@ -311,17 +338,19 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
             <div className="flex items-center justify-between gap-3 border-b border-border p-5">
               <div>
                 <h3 className="text-lg font-semibold text-card-foreground">{detailTitle}</h3>
-                <p className="text-sm text-muted-foreground">{details.length} movimientos · {data.periodLabel}</p>
+                <p className="text-sm text-muted-foreground">{detailTotal} movimientos · {data.periodLabel}</p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => setDetailKey(null)} title="Cerrar">
                 <X className="h-4 w-4" />
               </Button>
             </div>
             <div className="max-h-[70vh] overflow-auto">
-              {details.length === 0 ? (
+              {detailLoading || detailError ? <p className="p-6 text-sm text-muted-foreground" role="status">{detailError || "Cargando movimientos..."}</p> : details.length === 0 ? (
                 <p className="p-6 text-sm text-muted-foreground">No hay movimientos para este detalle.</p>
               ) : (
-                <table className="w-full min-w-[980px] border-collapse text-sm">
+                <>
+                <div className="space-y-3 p-4 md:hidden">{details.map((tx) => <article key={tx.id} className="space-y-2 rounded-lg border border-border p-3 text-sm"><div className="flex justify-between gap-3"><span className="text-muted-foreground">{formatDate(tx.date)}</span><strong className={tx.amount < 0 ? "text-danger" : "text-success"}>{formatCurrency(tx.amount)}</strong></div><p className="break-words font-medium">{tx.concept}</p><p className="text-xs text-muted-foreground">{tx.account} · {tx.category}</p><p className="text-xs text-muted-foreground">{tx.isInternalTransfer ? "Transferencia interna" : tx.isReimbursement ? "Reembolso" : tx.type === "EXPENSE" ? "Gasto" : "Ingreso"}</p>{tx.linkedMovements.length ? <p className="text-xs text-muted-foreground">{tx.linkedMovements.join(" · ")}</p> : null}</article>)}</div>
+                <table className="hidden w-full min-w-[980px] border-collapse text-sm md:table">
                   <thead className="sticky top-0 bg-muted text-left text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 font-medium">Fecha</th>
@@ -347,8 +376,10 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
                     ))}
                   </tbody>
                 </table>
+                </>
               )}
             </div>
+            <div className="flex items-center justify-end gap-3 border-t border-border p-3 text-sm"><Button variant="secondary" size="sm" disabled={detailLoading || detailPage <= 1} onClick={() => setDetailPage((page) => page - 1)}>Anterior</Button><span>{detailPage} / {Math.max(1, Math.ceil(detailTotal / 50))}</span><Button variant="secondary" size="sm" disabled={detailLoading || detailPage * 50 >= detailTotal} onClick={() => setDetailPage((page) => page + 1)}>Siguiente</Button></div>
           </div>
         </div>
       ) : null}

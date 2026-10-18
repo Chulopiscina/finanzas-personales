@@ -1,3 +1,4 @@
+import { InputError } from "@/lib/input-error";
 ﻿import { NextResponse } from "next/server";
 import { RecurringPaymentFrequency, RecurringPaymentStatus } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
@@ -23,28 +24,28 @@ async function validateBody(body: RecurringPaymentBody, userId: string, partial 
 
   if (!partial || body.name !== undefined) {
     const name = body.name?.trim();
-    if (!name) throw new Error("El nombre es obligatorio.");
+    if (!name) throw new InputError("El nombre es obligatorio.");
     data.name = name;
   }
 
   if (!partial || body.amount !== undefined) {
-    if (typeof body.amount !== "number" || !Number.isFinite(body.amount) || body.amount <= 0) throw new Error("El importe previsto debe ser mayor que cero.");
+    if (typeof body.amount !== "number" || !Number.isFinite(body.amount) || body.amount <= 0) throw new InputError("El importe previsto debe ser mayor que cero.");
     data.amount = body.amount;
   }
 
   if (!partial || body.nextChargeDate !== undefined) {
     const date = body.nextChargeDate ? new Date(body.nextChargeDate) : null;
-    if (!date || Number.isNaN(date.getTime())) throw new Error("La fecha del próximo cobro no es válida.");
+    if (!date || Number.isNaN(date.getTime())) throw new InputError("La fecha del próximo cobro no es válida.");
     data.nextChargeDate = date;
   }
 
   if (!partial || body.frequency !== undefined) {
-    if (!body.frequency || !frequencies.has(body.frequency)) throw new Error("La frecuencia no es válida.");
+    if (!body.frequency || !frequencies.has(body.frequency)) throw new InputError("La frecuencia no es válida.");
     data.frequency = body.frequency;
   }
 
   if (body.status !== undefined) {
-    if (!statuses.has(body.status)) throw new Error("El estado no es válido.");
+    if (!statuses.has(body.status)) throw new InputError("El estado no es válido.");
     data.status = body.status;
   }
 
@@ -55,7 +56,7 @@ async function validateBody(body: RecurringPaymentBody, userId: string, partial 
   if (body.accountId !== undefined) {
     if (body.accountId) {
       const account = await prisma.account.findFirst({ where: { id: body.accountId, userId } });
-      if (!account) throw new Error("La cuenta seleccionada no es válida.");
+      if (!account) throw new InputError("La cuenta seleccionada no es válida.");
     }
     data.accountId = body.accountId || null;
   }
@@ -63,7 +64,7 @@ async function validateBody(body: RecurringPaymentBody, userId: string, partial 
   if (body.categoryId !== undefined) {
     if (body.categoryId) {
       const category = await prisma.category.findFirst({ where: { id: body.categoryId, OR: [{ userId: null }, { userId }] } });
-      if (!category || category.isArchived) throw new Error("La categoría seleccionada no es válida.");
+      if (!category || category.isArchived) throw new InputError("La categoría seleccionada no es válida.");
     }
     data.categoryId = body.categoryId || null;
   }

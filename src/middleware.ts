@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/jwt";
 
-const privatePrefixes = ["/dashboard", "/movements", "/upload", "/statistics", "/profile", "/admin"];
+const privatePrefixes = ["/dashboard", "/movements", "/upload", "/statistics", "/profile", "/admin", "/accounts", "/categories", "/planning", "/statements"];
 const adminPrefixes = ["/admin", "/api/admin"];
 
 function isPrivatePath(pathname: string) {
@@ -33,17 +33,17 @@ function forbidden(request: NextRequest) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/login") {
-    const token = request.cookies.get(ACCESS_COOKIE)?.value;
-    if (!token) {
-      return NextResponse.next();
-    }
+  // Session validity is checked against the database in layouts and handlers.
+  // Do not redirect /login solely on a JWT: the database session may be revoked.
+  if (pathname === "/login") return NextResponse.next();
 
-    try {
-      await verifyAccessToken(token);
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    } catch {
-      return NextResponse.next();
+  if (isApiPath(pathname) && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    const origin = request.headers.get("origin");
+    const host = request.headers.get("host") ?? request.nextUrl.host;
+    let sameOrigin = !origin;
+    try { if (origin) sameOrigin = new URL(origin).host === host; } catch { sameOrigin = false; }
+    if (!sameOrigin || request.headers.get("sec-fetch-site") === "cross-site") {
+      return NextResponse.json({ error: "Origen de la petición no permitido." }, { status: 403 });
     }
   }
 
@@ -80,6 +80,10 @@ export const config = {
     "/statistics/:path*",
     "/profile/:path*",
     "/admin/:path*",
+    "/accounts/:path*",
+    "/categories/:path*",
+    "/planning/:path*",
+    "/statements/:path*",
     "/api/:path*"
   ]
 };

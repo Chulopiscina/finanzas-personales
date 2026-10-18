@@ -1,0 +1,34 @@
+import { expect, test } from "@playwright/test";
+test.skip(!process.env.TEST_APP_URL, "Requiere npm run test:system y datos ficticios.");
+test("login, dashboard, movimientos paginados y móvil", async ({ page }, info) => {
+  const errors: string[] = []; page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/login");
+  await page.getByLabel("Correo electrónico").fill(process.env.E2E_EMAIL!);
+  await page.getByLabel("Contraseña", { exact: true }).fill(process.env.E2E_PASSWORD!);
+  await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
+  await expect(page.locator(".recharts-sector").first()).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("dashboard.png"), fullPage: true });
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú" }).click();
+  await page.getByRole("link", { name: "Movimientos", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Movimientos", exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
+  await expect(page).toHaveURL(/page=2/);
+  await page.waitForTimeout(800);
+  await expect(page).toHaveURL(/page=2/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "Acciones", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "Asociar a objetivo" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("movements.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});
+test("manifest, iconos y ausencia de caché financiera offline", async ({ page, request }) => {
+  const response = await request.get("/manifest.webmanifest"); expect(response.ok()).toBe(true);
+  expect((await response.json()).display).toBe("standalone");
+  expect((await request.get("/icon-192.png")).headers()["content-type"]).toContain("image/png");
+  await page.goto("/login");
+  expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
+  expect((await request.get("/api/auth/me")).headers()["cache-control"]).toContain("no-store");
+});

@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
@@ -69,7 +70,7 @@ export function AdminPanel({ data }: { data: AdminData }) {
     setError("");
     setMessage("");
 
-    const response = await fetch("/api/admin/users", {
+    const response = await request("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(createForm)
@@ -94,7 +95,7 @@ export function AdminPanel({ data }: { data: AdminData }) {
 
     setError("");
     setMessage("");
-    const response = await fetch(`/api/admin/users/${editing.id}`, {
+    const response = await request(`/api/admin/users/${editing.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -118,9 +119,10 @@ export function AdminPanel({ data }: { data: AdminData }) {
   }
 
   async function deleteUser(id: string) {
+    if (!window.confirm("¿Eliminar este usuario y sus cuentas, movimientos y documentos? Esta acción no se puede deshacer.")) return;
     setError("");
     setMessage("");
-    const response = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
+    const response = await request(`/api/admin/users/${id}`, { method: "DELETE" });
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {

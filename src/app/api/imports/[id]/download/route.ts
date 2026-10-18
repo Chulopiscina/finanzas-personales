@@ -21,8 +21,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   try {
     const session = await requireUser();
     const { id } = await params;
-    const importedFile = await prisma.importHistory.findUnique({
-      where: { id },
+    const importedFile = await prisma.importHistory.findFirst({
+      where: { id, ...(session.user.role === Role.ADMIN ? {} : { userId: session.user.id }) },
       select: {
         userId: true,
         fileName: true,

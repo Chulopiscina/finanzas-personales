@@ -1,3 +1,4 @@
+import { InputError } from "@/lib/input-error";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { ImportStatus, Prisma } from "@prisma/client";
@@ -20,7 +21,7 @@ async function resolveImportAccount(userId: string, requestedAccountId: FormData
   if (requested) {
     const account = accounts.find((item) => item.id === requested);
     if (!account) {
-      throw new Error("La cuenta seleccionada no existe o esta archivada.");
+      throw new InputError("La cuenta seleccionada no existe o esta archivada.");
     }
     return account;
   }
@@ -29,7 +30,7 @@ async function resolveImportAccount(userId: string, requestedAccountId: FormData
     return accounts[0];
   }
 
-  throw new Error("Selecciona la cuenta a la que pertenece este extracto.");
+  throw new InputError("Selecciona la cuenta a la que pertenece este extracto.");
 }
 
 function parseForcedFormat(value: FormDataEntryValue | null): ImportBankFormat {
@@ -51,7 +52,8 @@ function previewResponse(historyId: string, accountName: string, preview: Import
     preview: {
       id: historyId,
       accountName,
-      ...preview
+      ...preview,
+      movements: preview.movements.slice(0, 100).map(({ raw: _raw, ...movement }) => movement)
     }
   };
 }
@@ -76,8 +78,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "El archivo debe ser CSV o PDF." }, { status: 400 });
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: "El archivo no puede superar los 10 MB." }, { status: 400 });
+    if (file.size > 4 * 1024 * 1024) {
+      return NextResponse.json({ error: "El archivo no puede superar los 4 MB." }, { status: 400 });
     }
 
     const fileBuffer = Buffer.from(await file.arrayBuffer());
@@ -85,8 +87,25 @@ export async function POST(request: NextRequest) {
     const mimeType = file.type || (isPdf ? "application/pdf" : "text/csv");
     const fileContent = storedFileContent(fileBuffer, isCsv);
 
+    let preview: ImportPreviewData;
     try {
-      const preview = await analyzeImportFile({ buffer: fileBuffer, fileName: file.name, mimeType, forcedFormat });
+      preview = await analyzeImportFile({ buffer: fileBuffer, fileName: file.name, mimeType, forcedFormat });
+    } catch (analysisError) {
+      if (!(analysisError instanceof InputError)) return jsonError(analysisError, "No se pudo leer el archivo. Comprueba que no esté dañado, protegido o escaneado.");
+      const message = analysisError.message;
+      const history = await prisma.importHistory.create({
+        data: {
+          userId: session.user.id, accountId: account.id, fileName: file.name, fileHash,
+          fileSize: file.size, mimeType, fileContent, rowCount: 0, insertedRows: 0, duplicateRows: 0,
+          incomeTotal: 0, expenseTotal: 0, status: ImportStatus.FAILED,
+          bankName: forcedFormat === "AUTO" ? "Otros" : forcedFormat, detectedFormat: forcedFormat,
+          validationStatus: "error", confidence: "baja", validationMessages: [message], errorMessage: message
+        }
+      });
+      return NextResponse.json({ error: message, importId: history.id }, { status: 400 });
+    }
+      const previousId = formData.get("previousImportId");
+      if (typeof previousId === "string") await prisma.importHistory.updateMany({ where: { id: previousId, userId: session.user.id, status: "PENDING" }, data: { status: "FAILED", canceledAt: new Date(), errorMessage: "Sustituido por un nuevo análisis." } });
       const history = await prisma.importHistory.create({
         data: {
           userId: session.user.id,
@@ -112,34 +131,6 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(previewResponse(history.id, account.name, preview));
-    } catch (analysisError) {
-      const message = analysisError instanceof Error ? analysisError.message : "No se pudo analizar el archivo.";
-      const history = await prisma.importHistory.create({
-        data: {
-          userId: session.user.id,
-          accountId: account.id,
-          fileName: file.name,
-          fileHash,
-          fileSize: file.size,
-          mimeType,
-          fileContent,
-          rowCount: 0,
-          insertedRows: 0,
-          duplicateRows: 0,
-          incomeTotal: 0,
-          expenseTotal: 0,
-          status: ImportStatus.FAILED,
-          bankName: forcedFormat === "AUTO" ? "Otros" : forcedFormat,
-          detectedFormat: forcedFormat,
-          validationStatus: "error",
-          confidence: "baja",
-          validationMessages: [message],
-          errorMessage: message
-        }
-      });
-
-      return NextResponse.json({ error: message, importId: history.id }, { status: 400 });
-    }
   } catch (error) {
     return jsonError(error, "No se pudo analizar el archivo.");
   }

@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -19,7 +20,8 @@ export function LoginForm() {
     setLoading(true);
     setError("");
 
-    const response = await fetch("/api/auth/login", {
+    try {
+    const response = await request("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
@@ -33,8 +35,14 @@ export function LoginForm() {
       return;
     }
 
-    router.replace(searchParams.get("next") || "/dashboard");
+    const next = searchParams.get("next") || "/dashboard";
+    router.replace(next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/dashboard");
     router.refresh();
+    } catch {
+      setError("No se pudo conectar. Comprueba tu conexión e inténtalo de nuevo.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

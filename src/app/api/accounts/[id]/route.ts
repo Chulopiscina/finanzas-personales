@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getAccountBalances } from "@/lib/finance";
 
 type AccountBody = {
   name?: string;
@@ -36,7 +37,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         isArchived: typeof body.isArchived === "boolean" ? body.isArchived : undefined
       }
     });
-    return NextResponse.json({ account: updated });
+    const balance = (await getAccountBalances(session.user.id, [id]))[0];
+    return NextResponse.json({ account: { ...updated, initialBalance: Number(updated.initialBalance), currentBalance: Number(balance.currentBalance), confirmedBalance: balance.confirmedBalance == null ? null : Number(balance.confirmedBalance), confirmedAt: balance.confirmedAt?.toISOString() ?? null } });
   } catch (error) {
     return jsonError(error, "No se pudo actualizar la cuenta.");
   }

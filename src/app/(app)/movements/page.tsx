@@ -3,6 +3,7 @@ import { TransactionsTable } from "@/components/transactions-table";
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
 import { ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
+import { accountingType } from "@/lib/ledger";
 
 const PAGE_SIZE_OPTIONS = [25, 50] as const;
 const DEFAULT_PAGE_SIZE = 50;
@@ -60,7 +61,7 @@ export default async function MovementsPage({ searchParams }: Props) {
     userId,
     ...(params?.accountId ? { accountId: params.accountId } : {}),
     ...(params?.categoryId ? { categoryId: params.categoryId } : {}),
-    ...(typeFilter ? { type: typeFilter } : {}),
+    ...(typeFilter === "TRANSFER" ? { isInternalTransfer: true } : typeFilter ? { isInternalTransfer: false, amount: typeFilter === "INCOME" ? { gte: 0 } : { lt: 0 } } : {}),
     ...(params?.importId ? { importHistoryId: params.importId } : {}),
     ...planningWhere,
     ...searchWhere
@@ -81,7 +82,7 @@ export default async function MovementsPage({ searchParams }: Props) {
         reimbursementLinks: { include: { expense: { include: { account: true, category: true } } } },
         reimbursedByLinks: { include: { reimbursement: { include: { account: true, category: true } } } }
       },
-      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize
     }),
@@ -118,15 +119,15 @@ export default async function MovementsPage({ searchParams }: Props) {
           cleanDescription: tx.cleanDescription,
           amount: toNumber(tx.amount),
           balance: tx.balance === null ? null : toNumber(tx.balance),
-          type: tx.type,
+          type: accountingType(tx),
           categoryId: tx.categoryId,
           category: tx.category,
           accountId: tx.accountId,
-          account: tx.account,
+          account: tx.account ? { id: tx.account.id, name: tx.account.name } : null,
           importHistory: tx.importHistory,
           planningGoals: tx.planningGoals,
-          reimbursementLinks: tx.reimbursementLinks,
-          reimbursedByLinks: tx.reimbursedByLinks,
+          reimbursementLinks: tx.reimbursementLinks.map((link) => ({ expenseId: link.expenseId, expense: { id: link.expense.id, date: link.expense.date.toISOString(), concept: link.expense.concept, cleanDescription: link.expense.cleanDescription, amount: toNumber(link.expense.amount), account: { id: link.expense.account.id, name: link.expense.account.name }, category: link.expense.category } })),
+          reimbursedByLinks: tx.reimbursedByLinks.map((link) => ({ reimbursementId: link.reimbursementId, reimbursement: { concept: link.reimbursement.concept, cleanDescription: link.reimbursement.cleanDescription, amount: toNumber(link.reimbursement.amount) } })),
           isInternalTransfer: tx.isInternalTransfer,
           isFixedExpense: tx.isFixedExpense,
           internalTransferCounterAccountId: tx.internalTransferCounterAccountId

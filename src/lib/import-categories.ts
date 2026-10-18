@@ -1,5 +1,5 @@
-import { CategoryType } from "@prisma/client";
-import { ensurePayrollCategory, isPayrollCategoryName, PAYROLL_CATEGORY_NAME } from "@/lib/payroll";
+import { CategoryType, type Prisma } from "@prisma/client";
+import { isPayrollCategoryName, PAYROLL_CATEGORY_NAME } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 
 export const categoryStyle: Record<string, { color: string; icon: string; type: CategoryType }> = {
@@ -23,19 +23,18 @@ export function canonicalCategoryName(name: string) {
   return isPayrollCategoryName(name) ? PAYROLL_CATEGORY_NAME : name;
 }
 
-export async function getOrCreateImportCategory(name: string) {
+export async function getOrCreateImportCategory(name: string, userId?: string, db: Prisma.TransactionClient = prisma) {
   const canonicalName = canonicalCategoryName(name);
-  if (canonicalName === PAYROLL_CATEGORY_NAME) {
-    return ensurePayrollCategory();
-  }
-
-  const existing = await prisma.category.findFirst({ where: { userId: null, name: canonicalName } });
+  const own = userId ? await db.category.findFirst({ where: { userId, name: canonicalName, isArchived: false } }) : null;
+  if (own) return own;
+  const existing = await db.category.findFirst({ where: { userId: null, name: canonicalName }, orderBy: { createdAt: "asc" } });
   if (existing) {
     return existing;
   }
 
   const style = categoryStyle[canonicalName] ?? categoryStyle.Otros;
-  return prisma.category.create({
+  if (userId) return db.category.upsert({ where: { userId_name: { userId, name: canonicalName } }, create: { userId, name: canonicalName, color: style.color, icon: style.icon, type: style.type }, update: {} });
+  return db.category.create({
     data: {
       name: canonicalName,
       color: style.color,

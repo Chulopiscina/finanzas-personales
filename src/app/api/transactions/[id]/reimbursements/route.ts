@@ -1,64 +1,34 @@
 import { NextResponse } from "next/server";
-import { Role, TransactionType } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { recalculateMonthlySummaries, toNumber } from "@/lib/finance";
+import { InputError } from "@/lib/input-error";
+import { refundShares } from "@/lib/ledger";
+import { cents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
-
-type ReimbursementBody = { expenseIds?: string[] };
-
-async function authorizeTransaction(id: string) {
-  const session = await requireUser();
-  const transaction = await prisma.transaction.findUnique({ where: { id } });
-  if (!transaction) return { error: NextResponse.json({ error: "Movimiento no encontrado." }, { status: 404 }) };
-  if (transaction.userId !== session.user.id && session.user.role !== Role.ADMIN) {
-    return { error: NextResponse.json({ error: "No puedes editar este movimiento." }, { status: 403 }) };
-  }
-  return { session, transaction };
-}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    const authorized = await authorizeTransaction(id);
-    if (authorized.error) return authorized.error;
-
-    if (authorized.transaction.type !== TransactionType.INCOME || toNumber(authorized.transaction.amount) <= 0 || authorized.transaction.isInternalTransfer) {
-      return NextResponse.json({ error: "Solo puedes marcar ingresos positivos reales como reembolso." }, { status: 400 });
-    }
-
-    const body = await readJson<ReimbursementBody>(request);
-    const expenseIds = [...new Set(body.expenseIds ?? [])];
-    if (expenseIds.length > 0) {
-      const expenses = await prisma.transaction.findMany({
-        where: {
-          id: { in: expenseIds },
-          userId: authorized.transaction.userId,
-          type: TransactionType.EXPENSE,
-          isInternalTransfer: false
-        },
-        select: { id: true }
-      });
-      if (expenses.length !== expenseIds.length) {
-        return NextResponse.json({ error: "Algún gasto seleccionado no es válido." }, { status: 400 });
+    const { user } = await requireUser(); const { id } = await params;
+    const body = await readJson<{ expenseIds?: string[] }>(request);
+    if (!Array.isArray(body.expenseIds) || body.expenseIds.length > 100 || body.expenseIds.some((item) => typeof item !== "string")) throw new InputError("Selecciona una lista válida de gastos.");
+    const expenseIds = [...new Set(body.expenseIds)];
+    const links = await prisma.$transaction(async (tx) => {
+      const reimbursement = await tx.transaction.findFirst({ where: { id, ...(user.role === "ADMIN" ? {} : { userId: user.id }) } });
+      if (!reimbursement) throw new InputError("Movimiento no encontrado.", 404);
+      if (cents(reimbursement.amount) <= 0 || reimbursement.isInternalTransfer) throw new InputError("Solo puedes marcar ingresos positivos reales como reembolso.");
+      const expenses = await tx.transaction.findMany({ where: { id: { in: expenseIds }, userId: reimbursement.userId, amount: { lt: 0 }, isInternalTransfer: false } });
+      if (expenses.length !== expenseIds.length) throw new InputError("Algún gasto seleccionado no es válido.");
+      const refunds = await tx.transaction.findMany({ where: { userId: reimbursement.userId, id: { not: id }, isInternalTransfer: false, amount: { gt: 0 }, reimbursementLinks: { some: { expenseId: { in: expenseIds } } } }, include: { reimbursementLinks: { include: { expense: true } } } });
+      const allocated = new Map<string, number>();
+      for (const refund of [...refunds, { ...reimbursement, reimbursementLinks: expenses.map((expense) => ({ expenseId: expense.id, expense })) }]) {
+        for (const share of refundShares(refund)) allocated.set(share.expense.id, (allocated.get(share.expense.id) ?? 0) + cents(share.amount));
       }
-    }
-
-    await prisma.$transaction(async (tx) => {
+      if (expenses.some((expense) => (allocated.get(expense.id) ?? 0) > Math.abs(cents(expense.amount)))) throw new InputError("Los reembolsos asignados superarían el importe de alguno de los gastos. Revisa los vínculos.");
       await tx.transactionReimbursement.deleteMany({ where: { reimbursementId: id } });
-      if (expenseIds.length > 0) {
-        await tx.transactionReimbursement.createMany({ data: expenseIds.map((expenseId) => ({ reimbursementId: id, expenseId })) });
-      }
-    });
-
-    const links = await prisma.transactionReimbursement.findMany({
-      where: { reimbursementId: id },
-      include: { expense: { include: { account: true, category: true } } },
-      orderBy: { createdAt: "asc" }
-    });
-    await recalculateMonthlySummaries(authorized.transaction.userId);
+      if (expenseIds.length) await tx.transactionReimbursement.createMany({ data: expenseIds.map((expenseId) => ({ reimbursementId: id, expenseId })) });
+      return tx.transactionReimbursement.findMany({ where: { reimbursementId: id }, include: { expense: { include: { account: { select: { id: true, name: true } }, category: true } } } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return NextResponse.json({ reimbursements: links });
-  } catch (error) {
-    return jsonError(error, "No se pudo actualizar el reembolso.");
-  }
+  } catch (error) { return jsonError(error, "No se pudo actualizar el reembolso."); }
 }

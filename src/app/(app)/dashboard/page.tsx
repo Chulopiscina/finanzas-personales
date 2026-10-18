@@ -37,11 +37,11 @@ export default async function DashboardPage({ searchParams }: Props) {
   const periodMode = parsePeriodMode(params?.periodMode);
   const period = parsePeriod(params?.period, periodMode);
   const userId = getAuthorizedUserId(session.user, params?.userId);
-  const [data, owner, planningGoals] = await Promise.all([
+  const [data, owner] = await Promise.all([
     getDashboardData(userId, params?.accountId, period, periodMode),
     userId !== session.user.id && session.user.role === Role.ADMIN ? prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }) : null,
-    getPlanningGoalProgress(userId, { dashboardOnly: true })
   ]);
+  const planningGoals = await getPlanningGoalProgress(userId, { dashboardOnly: true, accountId: data.selectedAccount?.id, range: { start: data.range.start ? new Date(data.range.start) : null, end: data.range.end ? new Date(data.range.end) : null, label: data.periodLabel }, targetMultiplier: data.targetMultiplier });
 
   const displayName = owner?.name ?? session.user.name;
   const scopeLabel = owner ? owner.email : data.selectedAccount ? data.selectedAccount.name : "Todas las cuentas";

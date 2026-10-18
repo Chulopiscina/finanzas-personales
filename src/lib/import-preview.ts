@@ -1,6 +1,9 @@
+import { InputError } from "@/lib/input-error";
 import { TransactionType } from "@prisma/client";
 import { parseBBVACsv, parseTradeRepublicCsv, type ParsedMovement } from "@/lib/csv";
-import { extractPdfText, parseBBVAPdf, parseCaixaBankPdfText, parseINGPdfText } from "@/lib/pdf";
+import { extractPdfText, parseBBVAPdfText, parseCaixaBankPdfText, parseINGPdfText } from "@/lib/pdf";
+import { cents, sumMoney, addMoney } from "@/lib/money";
+import { parseSpanishAmount } from "@/lib/csv";
 
 export type ImportBankFormat = "AUTO" | "BBVA" | "TRADE_REPUBLIC" | "ING" | "CAIXABANK" | "UNSUPPORTED";
 export type ImportValidationStatus = "correcto" | "aviso" | "error";
@@ -88,57 +91,47 @@ export function deserializePreviewMovement(movement: SerializedPreviewMovement):
   };
 }
 
-function sumSigned(movements: ParsedMovement[]) {
-  return movements.reduce((sum, movement) => sum + movement.amount, 0);
-}
-
-function balanceCandidate(movements: ParsedMovement[], direction: "asc" | "desc") {
-  if (movements.length === 0) {
-    return null;
-  }
-
-  const ordered = direction === "asc" ? movements : [...movements].reverse();
-  const first = ordered[0];
-  const last = ordered[ordered.length - 1];
-  if (first.balance === null || last.balance === null) {
-    return null;
-  }
-
-  const openingBalance = Number((first.balance - first.amount).toFixed(2));
-  const closingBalance = Number(last.balance.toFixed(2));
-  const expectedClosing = Number((openingBalance + sumSigned(ordered)).toFixed(2));
-  const diff = Number((expectedClosing - closingBalance).toFixed(2));
-  return { openingBalance, closingBalance, diff: Math.abs(diff), signedDiff: diff };
-}
-
-function validateBalances(movements: ParsedMovement[]) {
-  const withBalances = movements.filter((movement) => movement.balance !== null && Number.isFinite(movement.balance));
-  if (withBalances.length < 2) {
-    return {
-      openingBalance: null,
-      closingBalance: withBalances[0]?.balance ?? null,
-      balanceDifference: null,
-      message: "El extracto no trae saldos suficientes para validar el saldo final."
-    };
-  }
-
-  const asc = balanceCandidate(movements, "asc");
-  const desc = balanceCandidate(movements, "desc");
-  const selected = [asc, desc].filter(Boolean).sort((a, b) => a!.diff - b!.diff)[0];
-  if (!selected) {
-    return {
-      openingBalance: null,
-      closingBalance: null,
-      balanceDifference: null,
-      message: "No se ha podido validar el saldo del extracto."
-    };
-  }
-
+export function extractDeclaredBalances(text: string) {
+  const find = (pattern: RegExp, last = false) => {
+    const matches = [...text.matchAll(pattern)];
+    const value = (last ? matches.at(-1) : matches[0])?.[1];
+    const amount = value ? parseSpanishAmount(value) : NaN;
+    return Number.isFinite(amount) ? amount : null;
+  };
   return {
-    openingBalance: selected.openingBalance,
-    closingBalance: selected.closingBalance,
-    balanceDifference: selected.signedDiff,
-    message: selected.diff <= 0.05 ? null : "Los movimientos detectados no cuadran con el saldo final del extracto. Revisa antes de importar."
+    opening: find(/saldo\s+(?:inicial|anterior)\s*:?\s*([-+]?\d[\d.]*,\d{2})/gi),
+    closing: find(/saldo\s+(?:final|actual|disponible)\s*:?\s*([-+]?\d[\d.]*,\d{2})/gi, true)
+  };
+}
+
+export function validateBalances(movements: ParsedMovement[], declared = { opening: null as number | null, closing: null as number | null }) {
+  const candidates = [movements, [...movements].reverse()].filter((ordered) => ordered.every((movement, index) => index === 0 || movement.date >= ordered[index - 1].date));
+  const assessed = candidates.map((ordered) => {
+    const first = ordered[0];
+    const opening = declared.opening ?? (first?.balance == null ? null : addMoney(first.balance, -first.amount));
+    let running = opening;
+    let mismatches = 0;
+    for (const movement of ordered) {
+      if (running !== null) running = addMoney(running, movement.amount);
+      if (movement.balance !== null) {
+        if (running !== null && cents(running) !== cents(movement.balance)) mismatches++;
+        running = movement.balance;
+      }
+    }
+    const closing = declared.closing ?? ordered.at(-1)?.balance ?? null;
+    const difference = opening !== null && closing !== null ? addMoney(opening, sumMoney(movements, (m) => m.amount), -closing) : null;
+    return { opening, closing, difference, mismatches, ordered };
+  }).sort((a, b) => a.mismatches - b.mismatches);
+  const selected = assessed[0];
+  const invalid = !selected || selected.mismatches > 0 || (selected.difference !== null && cents(selected.difference) !== 0);
+  const independent = declared.opening !== null && declared.closing !== null;
+  return {
+    openingBalance: selected?.opening ?? declared.opening,
+    closingBalance: selected?.closing ?? declared.closing,
+    balanceDifference: selected?.difference ?? null,
+    ordered: selected?.ordered ?? [...movements].sort((a, b) => a.date.getTime() - b.date.getTime()),
+    message: invalid ? "Los movimientos detectados no cuadran con el saldo final del extracto. Revisa antes de importar."
+      : !independent ? "Los saldos son inferidos o incompletos: no se han podido contrastar ambos saldos declarados del extracto." : null
   };
 }
 
@@ -160,29 +153,29 @@ async function parseCsv(buffer: Buffer, forcedFormat: ImportBankFormat) {
 }
 
 async function parsePdf(buffer: Buffer, forcedFormat: ImportBankFormat) {
+  const text = await extractPdfText(buffer);
   if (forcedFormat === "BBVA") {
-    return { format: "BBVA" as const, movements: await parseBBVAPdf(buffer) };
+    return { format: "BBVA" as const, movements: parseBBVAPdfText(text), text };
   }
 
-  const text = await extractPdfText(buffer);
   if (forcedFormat === "ING") {
-    return { format: "ING" as const, movements: parseINGPdfText(text) };
+    return { format: "ING" as const, movements: parseINGPdfText(text), text };
   }
   if (forcedFormat === "CAIXABANK") {
-    return { format: "CAIXABANK" as const, movements: parseCaixaBankPdfText(text) };
+    return { format: "CAIXABANK" as const, movements: parseCaixaBankPdfText(text), text };
   }
 
   if (isIngPdf(text)) {
-    return { format: "ING" as const, movements: parseINGPdfText(text) };
+    return { format: "ING" as const, movements: parseINGPdfText(text), text };
   }
   if (isCaixaBankPdf(text)) {
-    return { format: "CAIXABANK" as const, movements: parseCaixaBankPdfText(text) };
+    return { format: "CAIXABANK" as const, movements: parseCaixaBankPdfText(text), text };
   }
   if (isBbvaPdf(text)) {
-    return { format: "BBVA" as const, movements: await parseBBVAPdf(buffer) };
+    return { format: "BBVA" as const, movements: parseBBVAPdfText(text), text };
   }
 
-  throw new Error("Este formato todavia no esta soportado. No se ha guardado ningun movimiento.");
+  throw new InputError("Este formato todavia no esta soportado. No se ha guardado ningun movimiento.");
 }
 
 export async function analyzeImportFile({
@@ -201,36 +194,40 @@ export async function analyzeImportFile({
   const isPdf = lowerName.endsWith(".pdf") || mimeType === "application/pdf";
 
   if (!isCsv && !isPdf) {
-    throw new Error("El archivo debe ser CSV o PDF.");
+    throw new InputError("El archivo debe ser CSV o PDF.");
   }
   if (forcedFormat === "UNSUPPORTED") {
-    throw new Error("Este formato todavia no esta soportado. No se ha guardado ningun movimiento.");
+    throw new InputError("Este formato todavia no esta soportado. No se ha guardado ningun movimiento.");
   }
 
   const parsed = isCsv ? await parseCsv(buffer, forcedFormat) : await parsePdf(buffer, forcedFormat);
   const movements = parsed.movements;
+  if (movements.length > 5000) throw new InputError("El extracto supera los 5.000 movimientos. Divídelo en periodos más pequeños.");
   if (movements.length === 0) {
-    throw new Error("El archivo no contiene movimientos detectables. No se ha guardado ningun movimiento.");
+    throw new InputError("El archivo no contiene movimientos detectables. No se ha guardado ningun movimiento.");
   }
 
   const dates = movements.map((movement) => movement.date.getTime()).filter(Number.isFinite);
-  const incomeTotal = movements.filter((movement) => movement.amount > 0).reduce((sum, movement) => sum + Math.abs(movement.amount), 0);
-  const expenseTotal = movements.filter((movement) => movement.amount < 0).reduce((sum, movement) => sum + Math.abs(movement.amount), 0);
-  const balance = validateBalances(movements);
+  const incomeTotal = sumMoney(movements.filter((movement) => movement.amount > 0), (movement) => movement.amount);
+  const expenseTotal = sumMoney(movements.filter((movement) => movement.amount < 0), (movement) => -movement.amount);
+  const declared = extractDeclaredBalances("text" in parsed ? String(parsed.text) : "");
+  const balance = validateBalances(movements, declared);
   const messages = [balance.message].filter((message): message is string => Boolean(message));
+  const unverifiedCsvBank = isCsv && forcedFormat === "AUTO" && parsed.format === "BBVA";
+  if (unverifiedCsvBank) messages.push("El CSV tiene columnas compatibles, pero el banco no se puede verificar. Selecciona el formato o confirma expresamente la revisión.");
 
   const validationStatus: ImportValidationStatus = messages.length === 0 ? "correcto" : "aviso";
-  const confidence: ImportConfidence = validationStatus === "correcto"
+  const confidence: ImportConfidence = unverifiedCsvBank ? "baja" : validationStatus === "correcto"
     ? "alta"
     : balance.balanceDifference === null
       ? "media"
       : "baja";
 
   return {
-    bankName: bankName(parsed.format),
+    bankName: unverifiedCsvBank ? "CSV compatible (banco no verificado)" : bankName(parsed.format),
     detectedFormat: parsed.format,
     fileName,
-    movements: movements.map(serializeMovement),
+    movements: balance.ordered.map((movement, index) => serializeMovement({ ...movement, raw: { ...movement.raw, statementSequence: String(index) } })),
     rowCount: movements.length,
     startDate: dates.length ? new Date(Math.min(...dates)).toISOString() : null,
     endDate: dates.length ? new Date(Math.max(...dates)).toISOString() : null,

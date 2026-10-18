@@ -18,7 +18,7 @@ export async function GET() {
     const categories = await prisma.category.findMany({
       where: { OR: [{ userId: null }, { userId: session.user.id }] },
       orderBy: [{ isArchived: "asc" }, { name: "asc" }],
-      include: { _count: { select: { transactions: true } } }
+      include: { _count: { select: { transactions: { where: { userId: session.user.id } } } } }
     });
     return NextResponse.json({ categories });
   } catch (error) {

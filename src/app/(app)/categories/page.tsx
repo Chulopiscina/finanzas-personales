@@ -11,7 +11,7 @@ export default async function CategoriesPage() {
   const categories = await prisma.category.findMany({
     where: { OR: [{ userId: null }, { userId: session.user.id }] },
     orderBy: [{ isArchived: "asc" }, { name: "asc" }],
-    include: { _count: { select: { transactions: true } } }
+    include: { _count: { select: { transactions: { where: { userId: session.user.id } } } } }
   });
 
   return (

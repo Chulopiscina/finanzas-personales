@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import { FormEvent, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
@@ -20,7 +21,7 @@ export function ProfileForm({ user }: { user: SessionUser }) {
     setMessage("");
     setError("");
 
-    const response = await fetch("/api/profile", {
+    const response = await request("/api/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -35,6 +36,10 @@ export function ProfileForm({ user }: { user: SessionUser }) {
 
     if (!response.ok) {
       setError(payload.error ?? "No se pudo actualizar el perfil.");
+      return;
+    }
+    if (payload.requiresLogin) {
+      window.location.assign("/login");
       return;
     }
 

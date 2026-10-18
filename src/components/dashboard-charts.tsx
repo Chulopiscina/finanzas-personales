@@ -77,11 +77,12 @@ export function DashboardCharts({
 }) {
   const hasCategories = categories.length > 0;
   const hasMonthly = monthly.length > 0;
-  const categoryTotal = categories.reduce((sum, category) => sum + category.value, 0);
-  const visibleCategories: VisualCategoryRow[] = categories.slice(0, 8).map((category, index) => ({
+  const categoryTotal = categories.reduce((sum, category) => sum + Math.round(category.value * 100), 0) / 100;
+  const positiveTotal = categories.filter((category) => category.value > 0).reduce((sum, category) => sum + Math.round(category.value * 100), 0) / 100;
+  const visibleCategories: VisualCategoryRow[] = categories.map((category, index) => ({
     ...category,
     visualColor: SOFT_CATEGORY_COLORS[index % SOFT_CATEGORY_COLORS.length],
-    percent: percentNumber(category.value, categoryTotal)
+    percent: percentNumber(Math.max(0, category.value), positiveTotal)
   }));
   const latestComparison = comparison.at(-1);
   const latestIncome = latestComparison?.ingresos ?? 0;
@@ -101,10 +102,11 @@ export function DashboardCharts({
         {hasCategories ? (
           <div className="grid gap-7 lg:grid-cols-[minmax(220px,0.95fr)_minmax(260px,1.05fr)] lg:items-center">
             <div className="h-72">
+              {positiveTotal > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={visibleCategories} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="86%" paddingAngle={3} stroke="hsl(var(--card))" strokeWidth={4} isAnimationActive animationDuration={180}>
-                    {visibleCategories.map((entry) => (
+                  <Pie data={visibleCategories.filter((row) => row.value > 0)} dataKey="value" nameKey="name" innerRadius="62%" outerRadius="86%" paddingAngle={3} stroke="hsl(var(--card))" strokeWidth={4} isAnimationActive animationDuration={180}>
+                    {visibleCategories.filter((row) => row.value > 0).map((entry) => (
                       <Cell key={entry.name} fill={entry.visualColor} className="transition-opacity duration-200 hover:opacity-80" />
                     ))}
                   </Pie>
@@ -117,6 +119,7 @@ export function DashboardCharts({
                   />
                 </PieChart>
               </ResponsiveContainer>
+              ) : <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Solo reembolsos netos en este periodo.</p>}
             </div>
             <div className="space-y-3">
               {visibleCategories.map((category) => (
@@ -128,7 +131,7 @@ export function DashboardCharts({
                     </div>
                     <div className="flex shrink-0 items-center gap-3 text-muted-foreground">
                       <span>{formatCurrency(category.value)}</span>
-                      <span className="w-10 text-right">{formatPercent(category.value, categoryTotal)}</span>
+                      <span className="min-w-10 text-right">{category.value < 0 ? "Reembolso" : formatPercent(category.value, positiveTotal)}</span>
                     </div>
                   </div>
                   <div className="mt-3 h-1.5 rounded-full bg-muted">

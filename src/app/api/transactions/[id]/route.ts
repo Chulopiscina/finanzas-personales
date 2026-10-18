@@ -1,254 +1,93 @@
 import { NextResponse } from "next/server";
-import { CategoryType, Role, TransactionType } from "@prisma/client";
+import { Prisma, Role } from "@prisma/client";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { recalculateMonthlySummaries, toNumber } from "@/lib/finance";
-import { isPayrollCategory } from "@/lib/payroll";
+import { InputError } from "@/lib/input-error";
+import { accountingType } from "@/lib/ledger";
+import { cents } from "@/lib/money";
+import { parseSpanishDate } from "@/lib/csv";
 import { prisma } from "@/lib/prisma";
 
 type TransactionBody = {
-  concept?: string;
-  cleanDescription?: string | null;
-  categoryId?: string | null;
-  accountId?: string;
-  date?: string;
-  amount?: number;
-  type?: TransactionType;
-  isInternalTransfer?: boolean;
-  isFixedExpense?: boolean;
-  internalTransferCounterAccountId?: string | null;
-  counterpartTransactionId?: string | null;
+  concept?: string; cleanDescription?: string | null; categoryId?: string | null;
+  accountId?: string; date?: string; amount?: number; isInternalTransfer?: boolean;
+  isFixedExpense?: boolean; internalTransferCounterAccountId?: string | null; counterpartTransactionId?: string | null;
 };
-
-async function authorizeTransaction(id: string) {
-  const session = await requireUser();
-  const transaction = await prisma.transaction.findUnique({ where: { id } });
-
-  if (!transaction) {
-    return { error: NextResponse.json({ error: "Movimiento no encontrado." }, { status: 404 }) };
-  }
-
-  if (transaction.userId !== session.user.id && session.user.role !== Role.ADMIN) {
-    return { error: NextResponse.json({ error: "No puedes editar este movimiento." }, { status: 403 }) };
-  }
-
-  return { session, transaction };
-}
-
-function transferTolerance(amount: number) {
-  return Math.max(1, Math.abs(amount) * 0.001);
-}
-
-async function linkManualInternalTransferPair(transactionId: string, counterpartId: string) {
-  const [transaction, counterpart] = await Promise.all([
-    prisma.transaction.findUnique({ where: { id: transactionId } }),
-    prisma.transaction.findUnique({ where: { id: counterpartId } })
-  ]);
-
-  if (!transaction || !counterpart || transaction.userId !== counterpart.userId || transaction.accountId === counterpart.accountId) {
-    return null;
-  }
-
-  const groupId = `internal-${[transaction.id, counterpart.id].sort().join("-")}`;
-  await prisma.$transaction([
-    prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        type: TransactionType.TRANSFER,
-        isInternalTransfer: true,
-        isFixedExpense: false,
-        internalTransferGroupId: groupId,
-        internalTransferCounterAccountId: counterpart.accountId
-      }
-    }),
-    prisma.transaction.update({
-      where: { id: counterpart.id },
-      data: {
-        type: TransactionType.TRANSFER,
-        isInternalTransfer: true,
-        isFixedExpense: false,
-        internalTransferGroupId: groupId,
-        internalTransferCounterAccountId: transaction.accountId
-      }
-    })
-  ]);
-
-  return groupId;
-}
-
-async function pairManualInternalTransfer(transactionId: string) {
-  const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
-  if (!transaction?.isInternalTransfer || !transaction.internalTransferCounterAccountId) {
-    return null;
-  }
-
-  const amount = toNumber(transaction.amount);
-  if (amount === 0) {
-    return null;
-  }
-
-  const tolerance = transferTolerance(amount);
-  const target = -amount;
-  const start = new Date(transaction.date.getTime() - 7 * 86_400_000);
-  const end = new Date(transaction.date.getTime() + 7 * 86_400_000);
-  const counterpart = await prisma.transaction.findFirst({
-    where: {
-      userId: transaction.userId,
-      id: { not: transaction.id },
-      accountId: transaction.internalTransferCounterAccountId,
-      date: { gte: start, lte: end },
-      amount: { gte: target - tolerance, lte: target + tolerance }
-    },
-    orderBy: [{ date: "asc" }, { createdAt: "asc" }]
-  });
-
-  if (!counterpart) {
-    return null;
-  }
-
-  const groupId = `internal-${[transaction.id, counterpart.id].sort().join("-")}`;
-  await prisma.$transaction([
-    prisma.transaction.update({
-      where: { id: transaction.id },
-      data: {
-        type: TransactionType.TRANSFER,
-        isInternalTransfer: true,
-        isFixedExpense: false,
-        internalTransferGroupId: groupId,
-        internalTransferCounterAccountId: counterpart.accountId
-      }
-    }),
-    prisma.transaction.update({
-      where: { id: counterpart.id },
-      data: {
-        type: TransactionType.TRANSFER,
-        isInternalTransfer: true,
-        isFixedExpense: false,
-        internalTransferGroupId: groupId,
-        internalTransferCounterAccountId: transaction.accountId
-      }
-    })
-  ]);
-
-  return groupId;
-}
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const session = await requireUser();
     const { id } = await params;
-    const authorized = await authorizeTransaction(id);
-    if (authorized.error) {
-      return authorized.error;
-    }
-
     const body = await readJson<TransactionBody>(request);
-    let explicitCounterpartId: string | null = null;
-    let selectedCategory: { name: string; type: CategoryType } | null = null;
-    if (body.accountId) {
-      const account = await prisma.account.findUnique({ where: { id: body.accountId } });
-      if (!account || account.userId !== authorized.transaction.userId || account.isArchived) {
-        return NextResponse.json({ error: "La cuenta seleccionada no es valida." }, { status: 400 });
+    const result = await prisma.$transaction(async (tx) => {
+      const original = await tx.transaction.findFirst({ where: { id, ...(session.user.role === Role.ADMIN ? {} : { userId: session.user.id }) }, include: { reimbursementLinks: true, reimbursedByLinks: true } });
+      if (!original) throw new InputError("Movimiento no encontrado.", 404);
+      const owner = original.userId;
+      const accountId = body.accountId ?? original.accountId;
+      if (body.accountId) {
+        const account = await tx.account.findFirst({ where: { id: accountId, userId: owner, isArchived: false } });
+        if (!account) throw new InputError("La cuenta seleccionada no es válida.");
+        if (original.isInternalTransfer && accountId !== original.accountId) throw new InputError("Quita primero la transferencia interna antes de cambiar de cuenta.");
       }
-    }
-
-    if (body.internalTransferCounterAccountId) {
-      const counterAccount = await prisma.account.findUnique({ where: { id: body.internalTransferCounterAccountId } });
-      if (!counterAccount || counterAccount.userId !== authorized.transaction.userId || counterAccount.id === (body.accountId ?? authorized.transaction.accountId)) {
-        return NextResponse.json({ error: "La cuenta contraria no es valida." }, { status: 400 });
+      if (body.categoryId) {
+        const category = await tx.category.findFirst({ where: { id: body.categoryId, OR: [{ userId: owner }, { userId: null }], isArchived: false } });
+        if (!category) throw new InputError("La categoría seleccionada no es válida.");
       }
-    }
-
-    if (body.counterpartTransactionId) {
-      const counterpart = await prisma.transaction.findUnique({ where: { id: body.counterpartTransactionId } });
-      const nextAccountId = body.accountId ?? authorized.transaction.accountId;
-      if (!counterpart || counterpart.userId !== authorized.transaction.userId || counterpart.id === id || counterpart.accountId === nextAccountId) {
-        return NextResponse.json({ error: "La contrapartida seleccionada no es valida." }, { status: 400 });
+      const amount = body.amount ?? original.amount;
+      cents(amount);
+      if (body.amount !== undefined && (typeof body.amount !== "number" || Math.abs(body.amount) >= 10_000_000_000)) throw new InputError("Importe no válido.");
+      if (cents(amount) !== cents(original.amount) && (original.internalTransferGroupId?.startsWith("internal-") || original.reimbursementLinks.length || original.reimbursedByLinks.length)) {
+        throw new InputError("Quita primero el vínculo de transferencia o reembolso antes de cambiar el importe.");
       }
-
-      if (body.internalTransferCounterAccountId && body.internalTransferCounterAccountId !== counterpart.accountId) {
-        return NextResponse.json({ error: "La contrapartida no pertenece a la cuenta seleccionada." }, { status: 400 });
+      const internal = body.isInternalTransfer ?? original.isInternalTransfer;
+      if (internal && (original.reimbursementLinks.length || original.reimbursedByLinks.length)) throw new InputError("Quita primero las relaciones de reembolso antes de marcar una transferencia.");
+      if (original.internalTransferGroupId?.startsWith("internal-") && body.isInternalTransfer === true) throw new InputError("Quita el vínculo anterior antes de seleccionar otra contrapartida.");
+      let counterpart = null;
+      let counterAccountId = body.internalTransferCounterAccountId ?? original.internalTransferCounterAccountId;
+      if (internal) {
+        if (body.counterpartTransactionId) {
+          counterpart = await tx.transaction.findFirst({ where: { id: body.counterpartTransactionId, userId: owner }, include: { reimbursementLinks: true, reimbursedByLinks: true } });
+          if (!counterpart || counterpart.id === id || counterpart.accountId === accountId || cents(counterpart.amount) !== -cents(amount) || counterpart.isInternalTransfer || counterpart.reimbursementLinks.length || counterpart.reimbursedByLinks.length) throw new InputError("La contrapartida debe ser libre, de la misma cantidad y signo opuesto en otra cuenta propia.");
+          if (counterAccountId && counterAccountId !== counterpart.accountId) throw new InputError("La contrapartida no corresponde a la cuenta seleccionada.");
+          counterAccountId = counterpart.accountId;
+        }
+        const account = counterAccountId && await tx.account.findFirst({ where: { id: counterAccountId, userId: owner, isArchived: false } });
+        if (!account || counterAccountId === accountId || cents(amount) === 0) throw new InputError("Selecciona otra cuenta propia activa y un importe distinto de cero.");
       }
-
-      explicitCounterpartId = counterpart.id;
-      body.internalTransferCounterAccountId = counterpart.accountId;
-    }
-
-    if (body.categoryId) {
-      const category = await prisma.category.findFirst({
-        where: { id: body.categoryId, OR: [{ userId: null }, { userId: authorized.transaction.userId }] }
-      });
-      if (!category || category.isArchived) {
-        return NextResponse.json({ error: "La categoria seleccionada no es valida." }, { status: 400 });
+      if (body.isInternalTransfer === false && original.internalTransferGroupId) {
+        const members = await tx.transaction.findMany({ where: { userId: owner, internalTransferGroupId: original.internalTransferGroupId }, select: { id: true, amount: true } });
+        for (const member of members) await tx.transaction.update({ where: { id: member.id }, data: { type: accountingType({ amount: member.amount, isInternalTransfer: false }), isInternalTransfer: false, internalTransferGroupId: null, internalTransferCounterAccountId: null } });
       }
-      selectedCategory = category;
-    }
-
-    const nextType = body.isInternalTransfer === true
-      ? TransactionType.TRANSFER
-      : selectedCategory && isPayrollCategory(selectedCategory)
-        ? TransactionType.INCOME
-        : body.type;
-    const intendedType = nextType ?? authorized.transaction.type;
-    const fixedExpenseValue = intendedType === TransactionType.EXPENSE
-      ? (typeof body.isFixedExpense === "boolean" ? body.isFixedExpense : undefined)
-      : (body.type !== undefined || body.isInternalTransfer === true || selectedCategory ? false : undefined);
-
-    const updated = await prisma.transaction.update({
-      where: { id },
-      data: {
-        concept: body.concept?.trim() || undefined,
-        cleanDescription: body.cleanDescription === null ? null : body.cleanDescription?.trim() || undefined,
+      const group = counterpart ? `internal-${[id, counterpart.id].sort().join("-")}` : original.internalTransferGroupId ?? `manual-${id}`;
+      const updated = await tx.transaction.update({ where: { id }, data: {
+        concept: typeof body.concept === "string" ? body.concept.trim().slice(0, 1000) || undefined : undefined,
+        cleanDescription: body.cleanDescription === null ? null : typeof body.cleanDescription === "string" ? body.cleanDescription.trim().slice(0, 1000) : undefined,
         categoryId: body.categoryId === null ? null : body.categoryId || undefined,
-        accountId: body.accountId || undefined,
-        date: body.date ? new Date(body.date) : undefined,
-        amount: typeof body.amount === "number" ? body.amount : undefined,
-        type: nextType,
-        isInternalTransfer: typeof body.isInternalTransfer === "boolean" ? body.isInternalTransfer : undefined,
-        isFixedExpense: fixedExpenseValue,
-        internalTransferCounterAccountId: body.isInternalTransfer === false ? null : body.internalTransferCounterAccountId === null ? null : body.internalTransferCounterAccountId || undefined,
-        internalTransferGroupId: body.isInternalTransfer === false ? null : body.isInternalTransfer === true ? `manual-${id}` : undefined
-      }
-    });
-
-    if (body.isInternalTransfer === true) {
-      if (explicitCounterpartId) {
-        await linkManualInternalTransferPair(updated.id, explicitCounterpartId);
-      } else {
-        await pairManualInternalTransfer(updated.id);
-      }
-    }
-
-    if (body.isInternalTransfer === false && authorized.transaction.internalTransferGroupId) {
-      await prisma.transaction.updateMany({
-        where: { userId: authorized.transaction.userId, internalTransferGroupId: authorized.transaction.internalTransferGroupId },
-        data: { isInternalTransfer: false, internalTransferGroupId: null, internalTransferCounterAccountId: null }
-      });
-    }
-
-    const result = await prisma.transaction.findUniqueOrThrow({
-      where: { id: updated.id },
-      include: { category: true, account: true, importHistory: { select: { id: true, fileName: true } } }
-    });
-
-    await recalculateMonthlySummaries(result.userId);
-    return NextResponse.json({ transaction: result });
-  } catch (error) {
-    return jsonError(error, "No se pudo actualizar el movimiento.");
-  }
+        accountId, amount, date: body.date ? parseSpanishDate(body.date) : undefined,
+        ...(body.date || body.amount !== undefined || accountId !== original.accountId ? { balance: null } : {}),
+        type: accountingType({ amount, isInternalTransfer: internal }), isInternalTransfer: internal,
+        isFixedExpense: !internal && cents(amount) < 0 ? body.isFixedExpense ?? original.isFixedExpense : false,
+        internalTransferGroupId: internal ? group : null, internalTransferCounterAccountId: internal ? counterAccountId : null
+      }, include: { category: true, account: { select: { id: true, name: true } }, importHistory: { select: { id: true, fileName: true } } } });
+      if (counterpart) await tx.transaction.update({ where: { id: counterpart.id }, data: { type: "TRANSFER", isInternalTransfer: true, isFixedExpense: false, internalTransferGroupId: group, internalTransferCounterAccountId: accountId } });
+      return updated;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return NextResponse.json({ transaction: { ...result, amount: Number(result.amount), balance: result.balance === null ? null : Number(result.balance) } });
+  } catch (error) { return jsonError(error, "No se pudo actualizar el movimiento."); }
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    const authorized = await authorizeTransaction(id);
-    if (authorized.error) {
-      return authorized.error;
-    }
-
-    await prisma.transaction.delete({ where: { id } });
-    await recalculateMonthlySummaries(authorized.transaction.userId);
+    const session = await requireUser(); const { id } = await params;
+    await prisma.$transaction(async (tx) => {
+      const original = await tx.transaction.findFirst({ where: { id, ...(session.user.role === Role.ADMIN ? {} : { userId: session.user.id }) } });
+      if (!original) throw new InputError("Movimiento no encontrado.", 404);
+      if (original.internalTransferGroupId) {
+        const members = await tx.transaction.findMany({ where: { userId: original.userId, internalTransferGroupId: original.internalTransferGroupId } });
+        for (const member of members) await tx.transaction.update({ where: { id: member.id }, data: { type: accountingType({ amount: member.amount, isInternalTransfer: false }), isInternalTransfer: false, internalTransferGroupId: null, internalTransferCounterAccountId: null } });
+      }
+      await tx.transaction.delete({ where: { id } });
+    });
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    return jsonError(error, "No se pudo eliminar el movimiento.");
-  }
+  } catch (error) { return jsonError(error, "No se pudo eliminar el movimiento."); }
 }

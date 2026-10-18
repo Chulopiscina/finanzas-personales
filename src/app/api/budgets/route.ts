@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { jsonError, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { budgetInclude, serializeBudget, validateBudgetBody, type BudgetBody } from "@/lib/budgets";
+import { budgetInclude, serializeBudget, validateBudgetBody, lockBudgets, type BudgetBody } from "@/lib/budgets";
+import { InputError } from "@/lib/input-error";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
@@ -26,13 +27,17 @@ export async function POST(request: Request) {
     const existing = await prisma.monthlyBudget.findFirst({ where: { userId: session.user.id, accountId: data.accountId, month: data.month } });
     if (existing) return NextResponse.json({ error: "Ya existe un presupuesto para ese mes y cuenta." }, { status: 400 });
 
-    const budget = await prisma.monthlyBudget.create({
+    const budget = await prisma.$transaction(async (tx) => {
+      await lockBudgets(tx, session.user.id);
+      if (await tx.monthlyBudget.findFirst({ where: { userId: session.user.id, accountId: data.accountId, month: data.month } })) throw new InputError("Ya existe un presupuesto para ese mes y cuenta.");
+      return tx.monthlyBudget.create({
       data: {
         ...data,
         userId: session.user.id,
         categories: { createMany: { data: categoryRows } }
       },
       include: budgetInclude
+      });
     });
     return NextResponse.json({ budget: serializeBudget(budget) });
   } catch (error) {

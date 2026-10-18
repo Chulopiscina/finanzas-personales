@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { assertPasswordStrength, hashPassword, requireUser, verifyPassword } from "@/lib/auth";
+import { assertPasswordStrength, hashPassword, requireUser, verifyPassword, destroyCurrentSession } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 
@@ -35,13 +35,18 @@ export async function PATCH(request: Request) {
       data.passwordHash = await hashPassword(body.newPassword);
     }
 
-    const user = await prisma.user.update({
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
       where: { id: session.user.id },
       data,
       select: { id: true, name: true, email: true, role: true, lastLoginAt: true }
+      });
+      if (data.passwordHash) await tx.session.deleteMany({ where: { userId: session.user.id } });
+      return updated;
     });
+    if (data.passwordHash) await destroyCurrentSession();
 
-    return NextResponse.json({ user });
+    return NextResponse.json({ user, requiresLogin: Boolean(data.passwordHash) });
   } catch (error) {
     return jsonError(error, "No se pudo actualizar el perfil.");
   }

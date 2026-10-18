@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+.movement-layout { container-type: inline-size; }
+.movement-desktop { display: none; }
+.movement-mobile { display: block; }
+@container (min-width: 1150px) {
+  .movement-desktop { display: block; }
+  .movement-mobile { display: none; }
+}
+[role="dialog"] { overscroll-behavior: contain; }
+[role="dialog"] > div { max-height: 90dvh; overflow-y: auto; }
+@media (max-width: 640px) {
+  [role="dialog"] { padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 224 20% 12%;

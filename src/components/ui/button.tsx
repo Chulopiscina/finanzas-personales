@@ -11,6 +11,7 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 export function Button({ className, variant = "primary", size = "md", ...props }: ButtonProps) {
   return (
     <button
+      aria-label={props["aria-label"] ?? props.title}
       className={cn(
         "inline-flex items-center justify-center gap-2 rounded-md border text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50",
         variant === "primary" &&

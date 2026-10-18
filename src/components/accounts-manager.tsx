@@ -1,10 +1,11 @@
-﻿"use client";
+"use client";
+import { request } from "@/lib/client-request";
 
 import { Archive, Pencil, Plus, RotateCcw, Save, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDate } from "@/lib/format";
 
 type AccountType = "BANK" | "SAVINGS" | "CARD" | "CASH" | "INVESTMENT" | "DEBT" | "OTHER";
 
@@ -14,6 +15,8 @@ type AccountRow = {
   type: AccountType;
   initialBalance: number;
   currentBalance: number;
+  confirmedBalance?: number | null;
+  confirmedAt?: string | null;
   currency: string;
   color: string | null;
   icon: string | null;
@@ -54,7 +57,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
 
   async function createAccount() {
     setMessage("");
-    const response = await fetch("/api/accounts", {
+    const response = await request("/api/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, initialBalance: Number(form.initialBalance || 0) })
@@ -87,7 +90,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
   async function saveAccount(account: AccountRow) {
     setMessage("");
     const nextInitialBalance = Number(editForm.initialBalance || 0);
-    const response = await fetch(`/api/accounts/${account.id}`, {
+    const response = await request(`/api/accounts/${account.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...editForm, initialBalance: nextInitialBalance })
@@ -97,11 +100,10 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
       setMessage(payload.error ?? "No se pudo editar la cuenta.");
       return;
     }
-    const balanceDelta = nextInitialBalance - account.initialBalance;
     setAccounts((current) =>
       current.map((item) =>
         item.id === account.id
-          ? { ...item, ...payload.account, initialBalance: nextInitialBalance, currentBalance: item.currentBalance + balanceDelta }
+          ? { ...item, ...payload.account, initialBalance: nextInitialBalance }
           : item
       )
     );
@@ -110,7 +112,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
 
   async function toggleArchive(account: AccountRow) {
     setMessage("");
-    const response = await fetch(`/api/accounts/${account.id}`, {
+    const response = await request(`/api/accounts/${account.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ isArchived: !account.isArchived })
@@ -145,7 +147,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
         {message ? <p className="mt-3 text-sm text-danger">{message}</p> : null}
       </section>
 
-      <section className="rounded-lg border border-border bg-card shadow-sm">
+      <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
         <div className="border-b border-border p-5">
           <h2 className="text-base font-semibold text-card-foreground">Tus cuentas</h2>
           <p className="text-sm text-muted-foreground">Las cuentas archivadas se ocultan de los selectores principales.</p>
@@ -153,7 +155,16 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
         {accounts.length === 0 ? (
           <p className="p-5 text-sm text-muted-foreground">No hay cuentas todavía.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="movement-mobile space-y-3 p-4">
+            {accounts.map((account) => <article className="space-y-3 rounded-lg border border-border p-4" key={account.id}>
+              <div className="flex justify-between gap-3"><div><p className="font-medium">{account.name}</p><p className="text-xs text-muted-foreground">{accountTypeLabels[account.type]} · {account.isArchived ? "Archivada" : "Activa"}</p></div><strong className="text-right">{money(account.currentBalance)}</strong></div>
+              <p className="text-xs text-muted-foreground">Inicial: {money(account.initialBalance)} · {account._count.transactions} movimientos</p>
+              <p className="text-xs text-muted-foreground">{account.confirmedBalance == null ? "Saldo calculado desde el saldo inicial" : `Saldo bancario ${money(account.confirmedBalance)} · ${formatDate(account.confirmedAt)}`}</p>
+              {editingId === account.id ? <div className="grid gap-3"><Input aria-label="Nombre de la cuenta" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /><Select aria-label="Tipo de cuenta" value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value as AccountType })}>{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><Input aria-label="Saldo inicial" type="number" step="0.01" value={editForm.initialBalance} onChange={(event) => setEditForm({ ...editForm, initialBalance: event.target.value })} /><Input aria-label="Color de la cuenta" type="color" value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /><div className="flex gap-2"><Button size="sm" onClick={() => void saveAccount(account)}><Save className="h-4 w-4" />Guardar</Button><Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancelar</Button></div></div> : <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => startEditing(account)}><Pencil className="h-4 w-4" />Editar</Button><Button size="sm" variant="secondary" onClick={() => void toggleArchive(account)}>{account.isArchived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}{account.isArchived ? "Reactivar" : "Archivar"}</Button></div>}
+            </article>)}
+          </div>
+          <div className="movement-desktop overflow-x-auto">
             <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
                 <tr>
@@ -200,7 +211,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
                           <Input className="ml-auto max-w-32 text-right" type="number" step="0.01" value={editForm.initialBalance} onChange={(event) => setEditForm({ ...editForm, initialBalance: event.target.value })} />
                         ) : money(account.initialBalance)}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-card-foreground">{money(account.currentBalance)}</td>
+                      <td className="px-4 py-3 text-right font-medium text-card-foreground">{money(account.currentBalance)}<p className="mt-1 text-xs font-normal text-muted-foreground">{account.confirmedBalance == null ? "Calculado desde saldo inicial" : `Banco: ${money(account.confirmedBalance)} · ${formatDate(account.confirmedAt)}`}</p></td>
                       <td className="px-4 py-3 text-right text-muted-foreground">{account._count.transactions}</td>
                       <td className="px-4 py-3 text-right text-muted-foreground">{account.isArchived ? "Archivada" : "Activa"}</td>
                       <td className="px-4 py-3 text-right">
@@ -233,6 +244,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

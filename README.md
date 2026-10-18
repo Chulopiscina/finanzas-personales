@@ -1,34 +1,13 @@
-# Finanzas personales BBVA
+# Finanzas personales
 
-Aplicación web privada para finanzas personales con Next.js, TypeScript, Tailwind CSS, PostgreSQL, Prisma, sesiones seguras y gráficas con Recharts.
+Aplicación privada Next.js 15 / React 19 / TypeScript, Prisma 5 y PostgreSQL. Cuentas, movimientos, extractos CSV/PDF, reembolsos, objetivos, presupuestos y pagos recurrentes. Sin registro público ni sincronización bancaria.
 
-## Funcionalidades
+## Requisitos y arranque
 
-- Login privado sin registro público.
-- Usuario administrador inicial creado por seed.
-- Roles `ADMIN` y `USER`.
-- Dashboard privado por usuario.
-- Importación CSV de BBVA con detección de duplicados.
-- Clasificación automática por categorías y edición manual posterior.
-- Métricas, gráficas, resumen mensual y recomendaciones.
-- Panel ADMIN para crear, editar, eliminar usuarios, cambiar contraseñas, asignar roles y ver actividad reciente.
-- Middleware de autenticación/autorización y validación de permisos en API.
-- Compatible con Vercel, Supabase o PostgreSQL gestionado.
-
-## Stack
-
-- React + Next.js + TypeScript
-- Tailwind CSS
-- PostgreSQL
-- Prisma ORM
-- Sesiones propias seguras con cookies HTTP-only, JWT firmado para middleware y tokens opacos en base de datos
-- bcrypt para contraseñas
-- Recharts
-
-## Instalación local
+Node.js 24 y PostgreSQL. No utilizar una base de producción para desarrollar o ejecutar pruebas.
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
 docker compose up -d
 npm run prisma:migrate
@@ -36,139 +15,62 @@ npm run db:seed
 npm run dev
 ```
 
-Abre `http://localhost:3000`.
+En PowerShell, `Copy-Item .env.example .env` sustituye a `cp`. Abrir http://localhost:3000.
+Antes del seed, configurar correo/nombre propios, una contraseña única de al menos 12 caracteres con mayúscula, minúscula y número, y un `AUTH_SECRET` aleatorio (32 caracteres como mínimo). No hay contraseña predeterminada. El seed no cambia contraseña ni rol de usuarios existentes.
 
-## Administrador inicial
+## Variables
 
-El seed crea automáticamente:
-
-- Correo: `oriolcasaponsaprat@gmail.com`
-- Contraseña inicial: `Pelota.1`
-- Rol: `ADMIN`
-
-La contraseña se guarda hasheada con bcrypt. No se almacena texto plano.
-
-## Variables de entorno
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/finanzas_personales?schema=public"
-AUTH_SECRET="cambia-esto-por-un-secreto-largo-de-32-caracteres-minimo"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
-INITIAL_ADMIN_EMAIL="oriolcasaponsaprat@gmail.com"
-INITIAL_ADMIN_PASSWORD="Pelota.1"
-INITIAL_ADMIN_NAME="Oriol Casa Ponsa Prat"
-```
-
-En producción, usa un `AUTH_SECRET` largo y aleatorio.
-
-## Supabase
-
-1. Crea un proyecto en Supabase.
-2. Copia la cadena PostgreSQL pooled o direct connection.
-3. Define `DATABASE_URL` y `DIRECT_URL` en Vercel.
-4. Ejecuta migraciones:
-
-```bash
-npm run db:deploy
-npm run db:seed
-```
-
-## Vercel
-
-1. Importa el repositorio en Vercel.
-2. Añade `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD` e `INITIAL_ADMIN_NAME`.
-3. Build command:
-
-```bash
-npm run build
-```
-
-4. Después del primer despliegue, ejecuta las migraciones contra producción:
-
-```bash
-npm run db:deploy
-npm run db:seed
-```
-
-## CSV y PDF BBVA
-
-El importador acepta CSV con columnas habituales:
-
-- `Fecha`
-- `Concepto`
-- `Importe`
-- `Saldo`
-
-También acepta variantes comunes como `Descripción`, `Movimiento`, `Cantidad` o `Saldo disponible`.
-
-Los duplicados se evitan con una huella por usuario basada en fecha, concepto, importe y saldo.
-
-Los PDF se procesan extrayendo texto del documento. Si el PDF es una imagen escaneada, sera necesario OCR antes de importarlo.
-
-## Seguridad
-
-- No existe página de registro.
-- Todas las rutas privadas están protegidas por middleware.
-- Las APIs vuelven a comprobar sesión y rol.
-- Cada movimiento pertenece a un `userId`.
-- Los usuarios normales solo pueden acceder a sus propios datos.
-- Cookies `httpOnly`, `sameSite=lax` y `secure` en producción.
-- Contraseñas con bcrypt (`salt rounds = 12`).
-- Sesiones persistidas como hash SHA-256 del token opaco.
-
-## Scripts
-
-```bash
-npm run dev              # desarrollo
-npm run build            # build Next.js + Prisma generate
-npm run start            # servidor producción
-npm run typecheck        # TypeScript
-npm run prisma:migrate   # migración local
-npm run db:deploy    # migración producción
-npm run db:seed          # admin inicial + categorías
-npm run prisma:studio    # interfaz Prisma
-```
-
-
-## Despliegue automatico GitHub + Vercel
-
-El repositorio principal es:
-
-`https://github.com/Chulopiscina/finanzas-personales.git`
-
-Para que cada cambio se publique automaticamente:
-
-1. Entra en Vercel y crea un proyecto nuevo importando ese repositorio de GitHub.
-2. Framework preset: `Next.js`.
-3. Production branch: `main`.
-4. Build command: `npm run vercel-build`.
-5. Install command: `npm install`.
-6. Output directory: dejar vacio, Vercel lo detecta.
-7. Anade las variables de entorno de produccion.
-
-Variables necesarias en Vercel:
+El archivo `.env.example` contiene únicamente valores de ejemplo. No subir `.env`, tokens, claves ni extractos a Git. Los caracteres especiales de contraseñas en URLs deben codificarse como componente URI.
 
 ```env
 DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&schema=app"
 DIRECT_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?schema=app"
-AUTH_SECRET="un-secreto-largo-y-aleatorio-de-32-caracteres-minimo"
-NEXT_PUBLIC_APP_URL="https://tu-dominio-de-vercel.vercel.app"
-INITIAL_ADMIN_EMAIL="oriolcasaponsaprat@gmail.com"
-INITIAL_ADMIN_PASSWORD="Pelota.1"
-INITIAL_ADMIN_NAME="Oriol Casa Ponsa Prat"
+AUTH_SECRET="<secreto-aleatorio-de-al-menos-32-caracteres>"
+NEXT_PUBLIC_APP_URL="https://<tu-dominio>"
 ```
 
-Despues de configurar las variables, aplica migraciones y seed contra Supabase desde local usando esas mismas variables:
+`DATABASE_URL` es la conexión de runtime por transaction pooler. `DIRECT_URL` se reserva a migraciones manuales desde una red que alcance la conexión directa. No intercambiar usuarios, puertos o hosts entre ambas. El runtime añade `pgbouncer=true` y un límite de una conexión si se usa el pooler Supabase de puerto 6543.
+
+`INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD` e `INITIAL_ADMIN_NAME` se necesitan solo para el seed inicial, ejecutado deliberadamente. Retirar la contraseña inicial del entorno tras ese uso. Las credenciales antiguas no se rotan automáticamente al desplegar: cambiarlas desde Perfil/Administración.
+
+## Desplegar en Vercel
+
+1. Importar el repositorio; Node 24, preset Next.js y `npm ci`.
+2. Configurar las variables en Production. Preview debe usar otra base; no dar acceso de escritura a producción a ramas no confiables.
+3. **Antes de publicar**, revisar y aplicar las migraciones necesarias. Seguir [el procedimiento de despliegue](docs/DEPLOYMENT.md).
+4. Build: `npm run vercel-build`. Ejecuta exclusivamente `prisma generate && next build`.
+5. Probar login, dashboard y aislamiento con dos usuarios de prueba.
+
+Las migraciones nunca se ejecutan durante el build de Vercel. `npm run db:deploy` es una operación manual y aplica todas las pendientes: revisar su estado/SQL antes de ejecutarla. No usar resets ni `db push` sobre producción.
+
+## Calidad y pruebas
 
 ```bash
-npm run db:deploy
-npm run db:seed
+npx prisma validate
+npx prisma generate
+npm run lint
+npm run typecheck
+npm test
+npm run test:local-db
+npx playwright install chromium
+npm run test:system
+npm run build
+npm run vercel-build
+npm audit --omit=dev
 ```
 
-Cada `git push` a `main` disparara un nuevo despliegue en Vercel.
+`npm test` ejecuta unitarias y handlers simulados; las pruebas DB/HTTP se omiten sin variables explícitas de pruebas. `test:local-db` crea un PostgreSQL local efímero, aplica migraciones solo allí y prueba integraciones reales. `test:system` añade un build, servidor Next de producción, HTTP y Chromium escritorio/móvil con datos ficticios. No necesita Docker ni usa las URLs de `.env`. Cierra servidor/base al terminar; los resultados visuales y la medición quedan en `outputs/` (ignorado por Git).
 
-La base de Supabase usa el esquema `app` para no tocar tablas existentes del esquema `public`. El script `vercel-build` no ejecuta migraciones: solo ejecuta `prisma generate` y `next build`. `DATABASE_URL` debe ir al transaction pooler (`aws-<region>.pooler.supabase.com:6543`) con usuario `postgres.<project-ref>` e incluir `pgbouncer=true`. `DIRECT_URL` queda reservada para migraciones manuales con `npm run db:deploy` y debe ir a la conexion directa (`db.<project-ref>.supabase.co:5432`) con usuario `postgres`. No uses `aws-...pooler.supabase.com:5432` como `DIRECT_URL`.
+GitHub Actions repite las comprobaciones usando exclusivamente bases desechables. Activar la protección de `main` y exigir el job `verify`: el archivo de workflow por sí solo no impide que Vercel publique antes de terminar CI.
 
-## Archivos originales
+## Importación y reglas financieras
 
-Cada CSV o PDF subido se guarda en PostgreSQL dentro de `ImportHistory`, asociado al `userId` propietario. El usuario puede ver sus archivos guardados en Perfil y descargarlos. Un usuario normal solo puede descargar sus propios archivos; un administrador puede acceder a todos.
+Los extractos pasan por vista previa, saldos/confianza y confirmación antes de crear movimientos. BBVA, ING, CaixaBank y CSV de Trade Republic tienen parsers específicos; un CSV genérico compatible queda con confianza baja. PDF escaneado requiere OCR externo; no se presume que se puede leer. Límites: 4 MB y 5.000 movimientos por archivo.
+
+Los originales y las vistas previas permanecen privados en PostgreSQL, asociados a usuario y cuenta. Solo se descargan bajo sesión autorizada. Las listas no envían el contenido original. La confirmación es atómica, idempotente y serializada por cuenta.
+
+Consultar [reglas financieras](docs/FINANCIAL_RULES.md), [despliegue](docs/DEPLOYMENT.md) e [informe de estabilización](INFORME_CORRECCIONES_FINANZAS.md) antes de usar la aplicación con más usuarios.
+
+## Móvil y PWA
+
+Manifest e iconos PNG, apertura standalone y metadatos de Safari. En iPhone: Compartir > Añadir a pantalla de inicio; en Android: opción de instalación del navegador cuando esté disponible. Se necesita HTTPS y conexión. No hay service worker, sincronización offline ni caché financiera persistente. La instalación en dispositivos físicos sigue pendiente de comprobación.

@@ -1,4 +1,5 @@
 "use client";
+import { request } from "@/lib/client-request";
 
 import { Archive, CheckCircle2, PauseCircle, PlayCircle, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -199,7 +200,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
 
   async function createGoal() {
     setMessage("");
-    const response = await fetch("/api/planning", {
+    const response = await request("/api/planning", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...form, targetAmount: Number(form.targetAmount || 0), accountId: form.accountId || null })
@@ -215,7 +216,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
   async function updateGoal(id: string, payload: Partial<GoalForm>) {
     setMessage("");
     const body = { ...payload, targetAmount: payload.targetAmount === undefined ? undefined : Number(payload.targetAmount || 0), accountId: payload.accountId === "" ? null : payload.accountId };
-    const response = await fetch(`/api/planning/${id}`, {
+    const response = await request(`/api/planning/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
@@ -241,7 +242,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
     const confirmed = window.confirm(`${warning}\n\n¿Eliminar definitivamente este objetivo?`);
     if (!confirmed) return;
 
-    const response = await fetch(`/api/planning/${goal.id}`, { method: "DELETE" });
+    const response = await request(`/api/planning/${goal.id}`, { method: "DELETE" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setMessage(payload.error ?? "No se pudo eliminar el objetivo.");
@@ -253,7 +254,7 @@ export function PlanningManager({ initialGoals, accounts, categories }: { initia
   async function removeManualMovement(goalId: string, transactionId: string) {
     const confirmed = window.confirm("¿Quitar este movimiento del objetivo? No se eliminará el movimiento.");
     if (!confirmed) return;
-    const response = await fetch(`/api/planning/${goalId}/transactions/${transactionId}`, { method: "DELETE" });
+    const response = await request(`/api/planning/${goalId}/transactions/${transactionId}`, { method: "DELETE" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       setMessage(payload.error ?? "No se pudo quitar el movimiento del objetivo.");

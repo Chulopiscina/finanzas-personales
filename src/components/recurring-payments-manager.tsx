@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
+import { request } from "@/lib/client-request";
 
-import { Archive, CheckCircle2, PauseCircle, PlayCircle, Plus, Save, Trash2, X } from "lucide-react";
+import { Archive, PauseCircle, PlayCircle, Plus, Save, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ const frequencyLabels: Record<Frequency, string> = {
   QUARTERLY: "Trimestral",
   ANNUAL: "Anual",
   ONCE: "Única vez",
-  OTHER: "Otra"
+  OTHER: "Otra (fecha manual)"
 };
 
 const statusLabels: Record<Status, string> = {
@@ -147,7 +148,7 @@ export function RecurringPaymentsManager({ initialPayments, accounts, categories
   async function createPayment() {
     setMessage("");
     setSavingId("new");
-    const response = await fetch("/api/recurring-payments", {
+    const response = await request("/api/recurring-payments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payloadFromForm(form))
@@ -164,7 +165,7 @@ export function RecurringPaymentsManager({ initialPayments, accounts, categories
   async function updatePayment(id: string, nextForm: Partial<PaymentForm> | PaymentForm) {
     setMessage("");
     setSavingId(id);
-    const response = await fetch(`/api/recurring-payments/${id}`, {
+    const response = await request(`/api/recurring-payments/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify("name" in nextForm ? payloadFromForm(nextForm as PaymentForm) : nextForm)
@@ -182,7 +183,7 @@ export function RecurringPaymentsManager({ initialPayments, accounts, categories
     const confirmed = window.confirm(`¿Eliminar definitivamente ${payment.name}? Esta acción no creará ni borrará movimientos reales.`);
     if (!confirmed) return;
     setSavingId(payment.id);
-    const response = await fetch(`/api/recurring-payments/${payment.id}`, { method: "DELETE" });
+    const response = await request(`/api/recurring-payments/${payment.id}`, { method: "DELETE" });
     setSavingId(null);
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));

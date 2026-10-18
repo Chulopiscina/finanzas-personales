@@ -1,4 +1,5 @@
-﻿"use client";
+"use client";
+import { request } from "@/lib/client-request";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,6 +26,7 @@ import type { SessionUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -43,6 +45,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  useDialogFocus(open, () => setOpen(false));
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("sidebar-collapsed") === "true");
@@ -55,7 +58,8 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    const response = await request("/api/auth/logout", { method: "POST" });
+    if (!response.ok) { window.alert("No se pudo cerrar la sesión. Inténtalo de nuevo."); return; }
     router.replace("/login");
     router.refresh();
   }
@@ -64,7 +68,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
     const isCollapsed = collapsed && !forceExpanded;
 
     return (
-      <aside className={cn("flex h-full flex-col border-r border-border bg-card/95 px-3 py-4 shadow-sm backdrop-blur transition-[width] duration-200 ease-out dark:bg-card/85", isCollapsed ? "w-20" : "w-72")}>
+      <aside className={cn("flex h-full min-h-0 flex-col overflow-y-auto border-r border-border bg-card/95 px-3 py-4 shadow-sm backdrop-blur transition-[width] duration-200 ease-out dark:bg-card/85", isCollapsed ? "w-20" : "w-72")}>
         <div className={cn("flex h-12 items-center gap-3 px-2", isCollapsed && "justify-center px-0")}>
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent ring-1 ring-accent/15">
             <CircleDollarSign className="h-5 w-5" aria-hidden="true" />
@@ -156,7 +160,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           </Button>
         </header>
         {open ? (
-          <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm">
+          <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Menú de navegación">
             <div className="absolute inset-y-0 left-0">
               {renderSidebar(true)}
               <Button type="button" variant="secondary" size="icon" className="absolute right-3 top-3" onClick={() => setOpen(false)} title="Cerrar menú">
