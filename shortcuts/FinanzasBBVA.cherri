@@ -30,7 +30,7 @@ if pairingInput {
         alert("Enlace de vinculacion no valido.")
         stop()
     }
-    confirm("Vas a enviar las notificaciones BBVA a la cuenta que has elegido en Finanzas Personales. La conexion anterior de este atajo sera sustituida.", "Conectar BBVA")
+    confirm("Vas a enviar las notificaciones BBVA a la cuenta que has elegido en Finanzas Personales. Sustituye la configuracion local. Desconecta los dispositivos anteriores desde la web si ya no los usas.", "Conectar BBVA")
     const exchangeResponse = jsonRequest("{origin}/api/integrations/shortcuts/pairing/exchange", "POST", {"code": "{code}"}, {"Content-Type": "application/json"})
     const exchange = getDictionary(exchangeResponse)
     const newToken = "{exchange['token']}"

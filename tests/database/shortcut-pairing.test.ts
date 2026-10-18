@@ -101,4 +101,14 @@ describe.skipIf(!url)("vinculación guiada de un solo uso", () => {
     await db.shortcutDevice.update({ where: { id: device.deviceId }, data: { windowCount: 120 } });
     await expect(verifyShortcutConnection("Bearer " + device.token)).rejects.toMatchObject({ status: 429 });
   });
+  it("no resucita credenciales tras cambiar contraseña con Atajos desactivado", async () => {
+    const first = await startShortcutPairing(owner, account, origin);
+    const device = await exchangeShortcutPairing(codeFrom(first.setupUrl));
+    const pending = await startShortcutPairing(owner, account, origin);
+    vi.stubEnv("SHORTCUTS_ENABLED", "false");
+    await db.$transaction(tx => revokeShortcutAuthorizations(tx, owner));
+    vi.stubEnv("SHORTCUTS_ENABLED", "true");
+    await expect(verifyShortcutConnection("Bearer " + device.token)).rejects.toMatchObject({ status: 401 });
+    await expect(exchangeShortcutPairing(codeFrom(pending.setupUrl))).rejects.toMatchObject({ status: 410 });
+  });
 });

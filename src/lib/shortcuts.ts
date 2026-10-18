@@ -12,7 +12,8 @@ export function requireShortcuts() {
 export const shortcutTokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 export async function revokeShortcutAuthorizations(tx: Prisma.TransactionClient, userId: string) {
-  if (!shortcutsEnabled()) return;
+  // Revocation must survive the emergency switch; otherwise old tokens revive
+  // when notifications are enabled again after a password/role change.
   await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"pairing:" + userId}))`;
   const now = new Date();
   await tx.shortcutDevice.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });

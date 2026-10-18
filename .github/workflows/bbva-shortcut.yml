@@ -1,4 +1,4 @@
-name: Sign BBVA shortcut with Apple
+name: Build BBVA shortcut and check Apple signing
 
 on:
   push:
@@ -34,6 +34,7 @@ jobs:
           cd "$RUNNER_TEMP/cherri"
           go build -o "$RUNNER_TEMP/cherri-compiler" .
       - name: Compile, inspect and sign with Apple's native command
+        id: apple
         shell: bash
         run: |
           set -euo pipefail
@@ -42,15 +43,26 @@ jobs:
           python3 scripts/verify-shortcut.py "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut"
           plutil -convert binary1 "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut"
           mkdir -p "$RUNNER_TEMP/signed"
-          shortcuts sign --mode anyone --input "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut" --output "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut"
-          test -s "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut"
+          if ! shortcuts sign --mode anyone --input "$RUNNER_TEMP/Finanzas BBVA_unsigned.shortcut" --output "$RUNNER_TEMP/signed/Finanzas BBVA.shortcut" > "$RUNNER_TEMP/sign.log" 2>&1; then
+            cat "$RUNNER_TEMP/sign.log"
+            if grep -q 'must be signed into iCloud' "$RUNNER_TEMP/sign.log"; then
+              echo 'signed=false' >> "$GITHUB_OUTPUT"
+              echo '::warning::Apple requires an iCloud session. Native compilation passed; no installable file or release has been published.'
+              echo 'Apple signing BLOCKED: a maintainer must sign on a Mac logged into iCloud. No credentials are requested or stored by this workflow.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            exit 1
+          fi
+          test -s "$RUNNER_TEMP/signed/Finanzas BBVA.shortcut"
+          echo 'signed=true' >> "$GITHUB_OUTPUT"
           cd "$RUNNER_TEMP/signed"
-          shasum -a 256 Finanzas-BBVA.shortcut > SHA256SUMS
+          shasum -a 256 "Finanzas BBVA.shortcut" > SHA256SUMS
       - name: Publish immutable signed file
+        if: steps.apple.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: bbva-shortcut-${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Finanzas BBVA (iOS 27)" --notes "Native Apple signing completed by CI. Physical iPhone installation and BBVA notification acceptance test remain separate. No user credentials are included." "$RUNNER_TEMP/signed/Finanzas-BBVA.shortcut" "$RUNNER_TEMP/signed/SHA256SUMS"
+          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Finanzas BBVA (iOS 27)" --notes "Native Apple signing completed by CI. Physical iPhone installation and BBVA notification acceptance test remain separate. No user credentials are included." "$RUNNER_TEMP/signed/Finanzas BBVA.shortcut" "$RUNNER_TEMP/signed/SHA256SUMS"

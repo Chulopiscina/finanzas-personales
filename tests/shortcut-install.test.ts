@@ -19,6 +19,12 @@ describe("instalación Apple sin enlaces ni permisos inventados", () => {
     expect(JSON.parse(url.searchParams.get("text")!)).toEqual({ mode: "pair", version: 1, origin: "https://finance.example", code: "pair_fixture" });
     expect(url.href).not.toContain("fp_");
   });
+  it("no ofrece el archivo sin firmar como instalador", () => {
+    for (const value of ["https://finanzas-personales-lime-two.vercel.app/shortcuts/Finanzas-BBVA_unsigned.shortcut", "https://evil.example/Finanzas-BBVA.shortcut"]) {
+      vi.stubEnv("SHORTCUTS_BBVA_INSTALL_URL", value);
+      expect(shortcutInstallConfig().installUrl).toBeNull();
+    }
+  });
   it("no admite origen con credenciales, query ni HTTP remoto", () => {
     for (const value of ["http://evil.example", "https://user:password@finance.example", "https://finance.example/?query=secret", "javascript:alert(1)"]) expect(() => shortcutOrigin(value)).toThrow();
     vi.stubEnv("NODE_ENV", "production");

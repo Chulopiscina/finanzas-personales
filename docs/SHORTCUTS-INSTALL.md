@@ -1,59 +1,65 @@
 # Instalación guiada BBVA
 
-## Estado real de esta entrega
+## Estado verificado el 18/10/2026
 
-El asistente PWA, las API de vinculación y la verificación están implementados. **No existe todavía un enlace iCloud publicado por este proyecto ni un archivo Apple exportado y validado.** No se presenta una receta JSON como si fuera un `.shortcut` instalable. La instalación completa queda bloqueada hasta completar la publicación Apple descrita abajo.
+- Backend, vinculación sin copiar tokens, asistente PWA y desconexión implementados y probados en PostgreSQL aislado y navegadores escritorio/móvil.
+- Supabase producción: **16/16 migraciones sincronizadas**. Se aplicó `20261018210000_shortcut_guided_pairing` en una transacción, se verificaron las nueve columnas de ShortcutPairing, cuatro índices, tres FK, RLS y permisos/bypass del rol postgres. Se registró con `prisma migrate resolve --applied`; status correcto. No se modificaron tablas financieras ni URLs/contraseñas de producción.
+- Atajo **nativo generado**, no una receta: [fuente](../shortcuts/FinanzasBBVA.cherri), [archivo compilado sin firmar](../public/shortcuts/Finanzas-BBVA_unsigned.shortcut). Inspección: 95 acciones, cuatro POST al origen fijado, sin tokens ni preguntas de importación.
+- **Firma Apple bloqueada**: el runner macOS estándar ejecutó el comando oficial y Apple respondió `In order to do this, you must be signed into iCloud.` [Ejecución real](https://github.com/Chulopiscina/finanzas-personales/actions/runs/39167233727/job/117792610502). No se solicitaron credenciales Apple ni se usó un servicio de firma externo.
+- **No existe todavía un archivo firmado ni un enlace iCloud publicado. No se ha probado un iPhone físico.** El asistente no permite iniciar una instalación/vinculación guiada sin un instalador configurado. No presenta el XML sin firmar como instalable.
+- Se configuró únicamente `SHORTCUTS_ENABLED=true` en Production de Vercel, sin cambiar conexiones/secretos. Tiene efecto en el siguiente despliegue; la instalación guiada sigue bloqueada por la ausencia de firma.
+- Validación local final: 123 tests de backend, 10 pruebas Playwright escritorio/móvil, lint, typecheck, Prisma validate, build y vercel-build correctos; audit de dependencias de producción sin vulnerabilidades. Incluye revocación durante desactivación para que los tokens no reaparezcan al reactivar.
 
-La [receta mantenida](../shortcuts/bbva.recipe.json) define los tres caminos del atajo (vinculación, comprobación y notificación) y el contrato exacto con la aplicación. Preparar/exportar este atajo es una tarea única del mantenedor, no del usuario final. Windows no dispone de la app ni del comando oficial de firma de Apple. No se han utilizado servicios de terceros para firmar ni credenciales iCloud del usuario.
+## Única dependencia del mantenedor: firma Apple
 
-## Qué permite Apple (consulta 18/10/2026)
+En un **Mac con sesión iCloud**, descargar [el archivo generado](https://finanzas-personales-lime-two.vercel.app/shortcuts/Finanzas-BBVA_unsigned.shortcut) en Descargas y ejecutar:
 
-- [Compartir mediante iCloud o archivo](https://support.apple.com/en-hk/guide/shortcuts/-apdf01f8c054/ios): el destinatario debe aceptar la incorporación. No hay aquí un mecanismo documentado para instalar en silencio desde una PWA.
-- [Ejecutar un atajo instalado desde una URL](https://support.apple.com/en-ae/guide/shortcuts/apd624386f42/ios): permite entregar texto a `shortcuts://run-shortcut`. No instala atajos ni concede permisos.
-- [Disparador Notificación](https://support.apple.com/guide/shortcuts/event-triggers-apd932ff833f/ios): permite seleccionar app y filtros de Message/Subtitle/Title. Esto no acredita qué contenido BBVA proporciona al atajo.
-- [Automatización iOS 27](https://support.apple.com/en-euro/guide/shortcuts/apdfbdbd7123/10.0/ios/27): se configura en el atajo, Editar > Automatización. La lista documentada de disparadores automáticos no enumera explícitamente Notificación; no se garantiza ejecución sin confirmación o bloqueada. Debe comprobarse en el iPhone.
-- [Exportar/firmar en Mac](https://support.apple.com/en-au/guide/shortcuts-mac/apd455c82f02/mac): Apple valida las copias compartidas. No falsificar firmas, enlaces iCloud ni automatizaciones exportadas.
+```bash
+shortcuts sign --mode anyone --input "$HOME/Downloads/Finanzas-BBVA_unsigned.shortcut" --output "$HOME/Downloads/Finanzas BBVA.shortcut"
+```
 
-## Pasos reales del usuario final
+Entregar el archivo firmado al mantenedor de la web. Mantener el nombre **Finanzas BBVA** al importarlo, ya que es el usado por el enlace de vinculación. No hace falta construir/programar el atajo, copiar tokens, dar contraseñas Apple a Codex ni crear un enlace iCloud. También puede compartirse un enlace iCloud REAL desde Atajos después de importar la copia firmada.
 
-1. **Elegir cuenta y autorizar**: PWA > Notificaciones > Conectar BBVA. Cuenta propia activa EUR y consentimiento para enviar el texto a su perfil.
-2. **Añadir el atajo**: Instalar atajo > confirmar Añadir atajo en Apple > volver a la PWA > Ya lo he añadido.
-3. **Vincular el iPhone**: tocar Vincular este iPhone. El atajo canjea el código, guarda su credencial sin copiarla y comprueba conexión; regresa a la PWA.
-4. **Crear la automatización**: abrir Finanzas BBVA > Editar > Automatización > Notificación > BBVA, guardar y aceptar los permisos que solicite iOS.
-5. **Verificar un aviso real**: comprobar recepción en la bandeja, también con pantalla bloqueada. No es necesario provocar compras o transferencias para la prueba; esperar una notificación legítima.
+Apple recibe únicamente el código genérico al firmarlo. No tiene datos financieros ni credenciales. El archivo sin firmar no se puede instalar directamente en un iPhone. No intentar omitir la validación de Apple.
 
-Son **cinco pasos de usuario, no cinco toques**. Apple puede añadir confirmaciones de apertura, red y archivos. La PWA no puede omitirlas. El asistente agrupa los primeros cuatro en cuatro pantallas y deja visible la recepción pendiente. El enlace de regreso puede abrir Safari, no la PWA instalada; en ese caso volver al icono de la PWA. No se presupone que Safari comparta su sesión con la PWA ni se transfieren cookies. Si falta el disparador o llega texto oculto/incompleto, informar de la limitación y mantener la importación PDF/CSV como alternativa.
+## Publicación del archivo firmado
 
-## Publicación única del atajo por el mantenedor
+La PWA acepta un enlace iCloud válido mediante `SHORTCUTS_BBVA_INSTALL_URL`, o una copia firmada del mismo origen indicada en `shortcuts/bbva-release.json`. No habilitar un manifiesto firmado hasta recibir y comprobar el archivo real.
 
-1. En un Mac/iPhone de pruebas con Atajos, construir `Finanzas BBVA` siguiendo la receta. Antes de exportar, fijar **como literal** el origen HTTPS de ese entorno. No aceptar un destino arbitrario del parámetro `origin`: una web maliciosa también puede abrir un esquema `shortcuts://`.
-2. Implementar un camino de vinculación para el JSON de entrada (`mode=pair`, `version=1`), otro de comprobación sin notificación, y otro para el texto REAL recibido. No adivinar nombres de propiedades del objeto Notification: inspeccionarlos en el iPhone y confirmar el mensaje entregado por BBVA antes de publicar.
-3. Usar las acciones Diccionario/Obtener contenido de URL/Obtener valor del diccionario/Guardar archivo/Obtener archivo/Generar UUID/Abrir URL. Configuración en un archivo privado separado del atajo. **No incrustar tokens** en acciones ni preguntas de importación.
-4. El archivo privado de configuración contiene una credencial de escritura provisional. Si se usa iCloud Drive se sincroniza bajo la cuenta Apple del propietario: no es Keychain ni almacenamiento inexpugnable. No compartir esa carpeta/archivo; quien lo lea puede enviar avisos provisionales hasta la revocación/caducidad, pero no leer datos ni operar dinero. No guardar configuración en una carpeta pública.
-5. Probar instalación limpia en otro iPhone/cuenta de prueba: vinculación, archivo/permisos, comprobación y regreso a la PWA, notificación BBVA original, repetición con UUID estable, pantalla bloqueada, revocación, caducidad, retención/devolución y conciliación sin doble gasto. Probar un `origin` externo: debe detenerse ANTES de cualquier envío.
-6. Exportar para **Anyone/Cualquiera** y compartir > Copiar enlace de iCloud desde Atajos. Si se utiliza Mac, la firma oficial es `shortcuts sign --mode anyone --input <exportado.shortcut> --output <firmado.shortcut>`; no contiene secretos. Apple recibe una copia para validar. No subir una copia que incluya configuración privada.
-7. Registrar la versión exportada, hash SHA-256, versión iOS/dispositivo, campos reales recibidos y pruebas en el registro de lanzamiento. Publicar solo después de la verificación física.
-8. Configurar **en un futuro despliegue autorizado** `SHORTCUTS_BBVA_INSTALL_URL=https://www.icloud.com/shortcuts/<id-real-de-32-hex>` y `SHORTCUTS_ENABLED=true`. El enlace de staging debe apuntar a un atajo fijado al origen de staging; el de producción a producción. No se ha configurado ninguna variable de producción en esta entrega.
+La CI compila con Cherri GPL-2.0, revisión fijada `bcc0095754e2cc0baaeb4d93dae172b8153b4716`; no distribuimos el compilador ni copiamos su implementación en la app. Usa el runner macOS estándar gratuito del repositorio público, sin servicios de pago. Si Apple exige sesión, publica un aviso de bloqueo y **no publica release**. Un run verde acredita la compilación; la firma solo existe cuando el paso Apple tiene `signed=true` y se ha publicado el asset.
 
-Mientras no haya enlace real, el botón Conectar BBVA abre un estado explícito «El atajo todavía no está disponible». No hay enlaces falsos, instalación silenciosa, tokens manuales en el flujo guiado ni indicador ficticio «automatización activa». El modo avanzado anterior sigue disponible.
+Si una ejecución autorizada logra firmar en Apple, descargar y verificar su release con:
 
-## Contrato de vinculación
+```bash
+node scripts/install-signed-shortcut.mjs <sha-completo-del-commit-firmado>
+```
 
-1. `POST /api/integrations/shortcuts/pairing`, sesión web y mismo origen: `{accountId, consent:true}`. Devuelve `{id, expiresAt, setupUrl}` con un código aleatorio de 256 bits, cinco minutos y un solo uso. Diez altas/hora/usuario. Nueva alta invalida enlaces pendientes de la misma cuenta. El servidor solo almacena SHA-256 del código.
-2. La PWA abre `setupUrl`, un esquema local de Atajos. Su texto es `{mode:"pair",version:1,origin,code}`. No contiene el bearer permanente, contraseñas, movimientos ni datos de Supabase. Es una capacidad temporal: no compartir enlaces/capturas y no enviarlos a analítica. No persistirla en localStorage, cookies ni URL HTTP. Se conserva solo en memoria del asistente.
-3. El atajo compara `origin` con su origen literal, luego `POST /api/integrations/shortcuts/pairing/exchange` con JSON `{code}`. Sin cookie, no admite `userId`/`accountId` del cliente. Canje bloqueado por transacción; se crea una única credencial de 90 días, solo hash en BD. Devuelve `{pairingId, deviceId, token, expiresAt}` una vez, con `no-store`. Si la respuesta se pierde o no se guarda, iniciar una nueva vinculación, no recuperar el token desde el servidor.
-4. El atajo guarda la credencial y llama `POST /api/integrations/shortcuts/check`, `Authorization: Bearer <token>`. Comparte el límite de 120 llamadas/hora con las recepciones. Actualiza `lastVerifiedAt`, **no crea BankNotification ni Transaction**. Regresa al origen fijo `/notifications?pairing=<id-no-secreto>`.
-5. La PWA consulta `GET /api/integrations/shortcuts/pairing?id=...` con sesión del propietario: waiting/paired/verified/expired/canceled/disconnected, sin código ni token. Sondeo cada diez segundos solo con asistente visible, durante diez minutos como máximo. Regresar de Atajos actualiza el estado. Verificado solo significa que llegó una comprobación autenticada; recepción real se muestra por separado.
-6. Desconectar revoca el bearer conservando notificaciones y movimientos. Cambios de contraseña/rol revocan también enlaces pendientes; el mismo bloqueo de usuario protege el canje concurrente.
+El script exige ejecución de CI correcta, release publicada de este repositorio, checksum SHA-256 y contenedor AEA1. Incorpora binario y manifiesto sin afirmar una prueba física. Ejecutar después tests/build y publicar ambos. Para una firma manual, verificar su procedencia/instalación con Apple antes de incorporar el binario y su hash; no basta renombrar un plist.
 
-La credencial final nunca viaja en enlaces, portapapeles o preguntas de importación. El código temporal sí aparece en el esquema local de Atajos; conlleva riesgo si se comparte durante sus cinco minutos. El enlace de instalación público es genérico y no incorpora códigos de usuario. No se asegura que iOS elimine del historial de su sistema un esquema que se haya abierto.
+## Pasos del usuario final (tras publicar la firma)
 
-## Despliegue pendiente
+1. PWA > **Notificaciones > Conectar BBVA**: elegir cuenta propia activa EUR y autorizar envío de avisos provisionales.
+2. **Instalar atajo**: aceptar Añadir atajo en Apple y regresar a la PWA. Si Safari descarga el archivo, abrirlo desde Descargas/Compartir > Atajos.
+3. **Vincular este iPhone**: aceptar la confirmación. El atajo guarda su credencial individual en Storage del propio atajo (iOS 27), nunca global, en acciones exportadas o portapapeles. Regresa a la web; si abre Safari, volver al icono PWA.
+4. En Atajos, **Finanzas BBVA > Editar > Automatización > Notificación > BBVA**. Guardar y aceptar permisos de red que solicite Apple. No hay instalación ni automatización silenciosa.
+5. Esperar un aviso BBVA legítimo y comprobar la bandeja, desbloqueado y bloqueado. No provocar pagos para probar. Vinculación verificada no significa automatización verificada.
 
-Producción estaba en `73a5682`, con las quince migraciones registradas y Atajos desactivado. Este cambio añade una **decimosexta**: `20261018210000_shortcut_guided_pairing` (tabla ShortcutPairing con RLS y columna nullable ShortcutDevice.lastVerifiedAt). No toca tablas financieras. Solo se ha aplicado en bases locales de pruebas.
+Son cinco pasos, no cinco toques. No hace falta programar acciones ni copiar claves. Falta confirmar en un iPhone real si BBVA entrega texto completo y cómo funciona bloqueado. Si no entrega contenido útil, se detiene o queda para revisión; PDF/CSV sigue disponible. La PWA no puede conceder los permisos de Apple.
 
-Antes de activar esta versión: backup y autorización, verificar 15/15 anteriores, revisar/aplicar la migración aditiva en `app`, comprobar columnas/PK/FK/índices/RLS/permisos, y mantener el historial Prisma sincronizado con `resolve --applied` SOLO si se ejecutó primero su SQL manualmente. No se incluyen migraciones en el build. No usar reset ni editar `_prisma_migrations`.
+## Seguridad y contrato
 
-## Pruebas locales y límites
+- Origen HTTPS fijado como literal en el atajo. Se rechaza un origen ajeno antes de enviar el código. No se aceptan destinos elegidos por enlaces externos.
+- Código `pair_` aleatorio 256 bits, cinco minutos, un uso y hash en servidor; API normal exige sesión, consentimiento, propiedad de cuenta y mismo origen. Diez altas/hora/usuario y bloqueo transaccional contra canjes simultáneos.
+- Canje nativo devuelve una sola vez credencial `fp_` de 256 bits y 90 días. Solo permite escribir avisos/comprobar conexión; nunca leer movimientos o ejecutar operaciones bancarias. Solo SHA-256 en BD. No compartir el almacenamiento del atajo; se sincroniza bajo la cuenta Apple y no es Keychain.
+- `/check` devuelve `connection: verified` textual para evitar conversiones booleanas localizadas. No crea notificaciones ni movimientos y no finge la primera recepción real.
+- El atajo manda texto original, sourceApp y un ID de transporte creado una vez. No inventa cuenta, comercio, fecha bancaria, importe o saldo. Sin fecha inequívoca no hay conciliación automática.
+- El servidor conserva original y separa recepción de fecha bancaria. Idempotencia por credencial/eventId; mismo ID con otro contenido es 409. Recibir dos avisos bancarios con IDs distintos puede duplicar la bandeja, **nunca los gastos contables**.
+- Todo entra en BankNotification, no en Transaction. Retenciones, preautorizaciones, anulaciones, devoluciones y datos ambiguos requieren revisión. Conciliación con extractos solo con identidad suficiente y coincidencia única en ambas direcciones, mismo propietario/cuenta/importe firmado.
+- Desconectar/caducar/cambiar contraseña revoca credenciales; se conservan movimientos, documentos y avisos. Cambiar de vinculación local no revoca por sí solo otro dispositivo: desconectarlo en la web.
+- `SHORTCUTS_ENABLED=false` sigue siendo el interruptor de emergencia. El build no ejecuta migraciones.
 
-`npm run test:system` crea una BD local desechable, aplica dieciséis migraciones, prueba API/contabilidad y abre navegador escritorio/móvil. El enlace iCloud de ceros es **solo un fixture**, nunca se abre ni se ofrece en producción. Las pruebas simulan el canje del cliente nativo y no prueban instalación/automatización real de Apple. No sustituir la prueba física por un build correcto.
+## Fuentes y límites
+
+[Apple: notificaciones y Storage en iOS 27](https://developer.apple.com/videos/play/wwdc2026/310/), [firma oficial](https://support.apple.com/en-au/guide/shortcuts-mac/apd455c82f02/mac), [compartir archivos/iCloud](https://support.apple.com/en-hk/guide/shortcuts/-apdf01f8c054/ios), [ejecución por URL](https://support.apple.com/en-ae/guide/shortcuts/apd624386f42/ios).
+
+`npm run test:system` usa una BD local nueva, pruebas HTTP y navegador 1600/390 px. Simula el cliente nativo: **no sustituye una instalación, permisos o notificación BBVA físicos**. El fixture iCloud de ceros solo aparece en pruebas y nunca se ofrece en producción.

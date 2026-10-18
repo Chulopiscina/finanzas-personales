@@ -10,7 +10,11 @@ const nextConfig = {
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" }
       ] },
-      { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] }
+      { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "private, no-store" }] },
+      { source: "/shortcuts/Finanzas-BBVA.shortcut", headers: [
+        { key: "Content-Type", value: "application/x-apple-shortcut" },
+        { key: "Content-Disposition", value: 'attachment; filename="Finanzas BBVA.shortcut"' }
+      ] }
     ];
   },
   serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],

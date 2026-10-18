@@ -96,3 +96,9 @@ El rollback de aplicación puede volver al commit anterior conservando esta tabl
 ## Límites de la validación
 
 Las migraciones completas se han probado en PostgreSQL local desechable, no en Supabase existente. Faltan smoke tests del despliegue, accesibilidad física iPhone/Android y una restauración de backup comprobada. No invitar a la familia hasta completar esos pasos.
+
+## Actualización autorizada: 18/10/2026
+
+Las tres discrepancias antiguas ya estaban reconciliadas; no repetir su SQL. En esta entrega se comprobó producción por Session pooler TLS, proyecto esperado y esquema `app`: 15 aplicadas, cero incompletas y solo `20261018210000_shortcut_guided_pairing` pendiente. Se aplicó exclusivamente su SQL aditivo en transacción con lock_timeout 5 s y statement_timeout 30 s. Se verificaron columna nullable lastVerifiedAt, nueve columnas de ShortcutPairing, cuatro índices, tres FK, RLS, permisos y rol postgres con bypass. Después se ejecutó `prisma migrate resolve --applied 20261018210000_shortcut_guided_pairing` y `prisma migrate status`: **16/16 sincronizadas**.
+
+No se modificaron datos financieros, contraseñas, conexiones de Vercel ni migraciones previas. La URL de migración solo se suministró al proceso hijo, no se guardó en archivos. Build continúa `prisma generate && next build`. Atajos requiere `SHORTCUTS_ENABLED=true`; el instalador permanece bloqueado mientras no exista archivo firmado/enlace real. La firma Apple requiere sesión iCloud y la prueba física depende de un iPhone: [estado verificable](SHORTCUTS-INSTALL.md).

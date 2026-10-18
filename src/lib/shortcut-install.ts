@@ -1,11 +1,16 @@
+import release from "../../shortcuts/bbva-release.json";
+
 export const BBVA_SHORTCUT_NAME = "Finanzas BBVA";
 
 export function shortcutInstallConfig() {
   const value = process.env.SHORTCUTS_BBVA_INSTALL_URL;
-  if (!value) return { installUrl: null, name: BBVA_SHORTCUT_NAME };
+  if (!value) return { installUrl: release.appleSigned ? release.origin + release.path : null, name: BBVA_SHORTCUT_NAME };
   try {
     const url = new URL(value);
-    const valid = url.protocol === "https:" && url.hostname === "www.icloud.com" && !url.port && !url.username && !url.password && !url.search && !url.hash && /^\/shortcuts\/[a-f0-9]{32}$/i.test(url.pathname);
+    const clean = url.protocol === "https:" && !url.port && !url.username && !url.password && !url.search && !url.hash;
+    const iCloud = url.hostname === "www.icloud.com" && /^\/shortcuts\/[a-f0-9]{32}$/i.test(url.pathname);
+    const bundled = release.appleSigned && url.origin === release.origin && url.pathname === release.path;
+    const valid = clean && (iCloud || bundled);
     return { installUrl: valid ? url.href : null, name: BBVA_SHORTCUT_NAME };
   } catch { return { installUrl: null, name: BBVA_SHORTCUT_NAME }; }
 }

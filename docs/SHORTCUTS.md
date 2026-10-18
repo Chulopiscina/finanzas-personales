@@ -1,10 +1,10 @@
 # Atajos de iPhone: bandeja bancaria provisional
 
-## Asistente de instalación (nuevo, pendiente de publicación)
+## Asistente de instalación
 
-La PWA incorpora **Conectar BBVA**, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. Estado y pasos reales: [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md). El atajo Apple compartible todavía necesita exportación, prueba física y publicación por el mantenedor; sin enlace real el asistente lo indica y no inicia la vinculación. No hay instalación/automatización silenciosa.
+La PWA incorpora **Conectar BBVA**, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. El atajo nativo ya está generado; la firma oficial se intentó en macOS y Apple exige una sesión iCloud. Estado real, archivo y única acción del mantenedor: [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md). Sin una firma/enlace real, el asistente no finge instalación. No hay instalación/automatización silenciosa.
 
-Las quince migraciones de `73a5682` ya quedaron reconciliadas en producción antes de esta entrega. La nueva `20261018210000_shortcut_guided_pairing` solo está preparada/probada localmente: **no se ha aplicado a producción**. Las instrucciones manuales siguientes se conservan como configuración avanzada y contrato del importador.
+Las **dieciséis migraciones están aplicadas y registradas en producción** (18/10/2026), incluida `20261018210000_shortcut_guided_pairing`, con RLS/permisos verificados y sin tocar tablas financieras. Las instrucciones manuales siguientes se conservan solo como configuración avanzada y contrato del importador; el flujo guiado no requiere copiar tokens.
 
 ## Capacidad verificada y límites
 
@@ -12,13 +12,12 @@ Consulta oficial realizada el 18/10/2026: la [guía de Apple para iOS 27](https:
 
 Esto no prueba qué campos entrega cada banco a la entrada del atajo, ni garantiza ejecución bloqueada, notificaciones completas o identificadores de operación. No se ha probado un iPhone físico. Antes de automatizar, inspeccionar la entrada con una notificación de prueba sin datos sensibles. Si no aparece el disparador o no llega contenido utilizable, detenerse: no hay un lector genérico de notificaciones desde la web ni acceso a datos privados del banco. No usar contraseñas bancarias, APIs de pago ni servicios externos de IA/OCR.
 
-## Activación pendiente de autorización
+## Activación y mantenimiento
 
-1. No publicar este commit automáticamente.
-2. Confirmar el historial descrito en [DEPLOYMENT.md](DEPLOYMENT.md); las tres discrepancias antiguas ya se resolvieron y no deben repetirse.
-3. Revisar y autorizar la nueva migración `20261018210000_shortcut_guided_pairing`; probarla en staging. Es aditiva: no modifica ni borra datos financieros existentes.
-4. Solo con autorización, aplicar esa nueva migración mediante la conexión del esquema `app` y verificar RLS/permisos del rol Prisma. La migración de bandeja anterior ya está aplicada. No usar el historial como sustituto de una comparación física.
-5. Posteriormente configurar `SHORTCUTS_ENABLED=true` en el entorno autorizado y reiniciar/desplegar. Por defecto es `false`: ni los imports ni las páginas financieras consultan las nuevas tablas.
+1. No repetir migraciones anteriores: historial 16/16 sincronizado.
+2. `SHORTCUTS_ENABLED=true` permite la bandeja provisional. `false` la desactiva sin borrar datos.
+3. Publicar una firma Apple real antes de configurar el instalador. No presentar el archivo sin firmar como instalable.
+4. Comprobar la primera notificación física por separado; verificación de credencial no prueba el disparador de iOS.
 
 ## Configurar el atajo (primero en staging)
 
