@@ -9,14 +9,15 @@ import { useDialogFocus } from "@/components/use-dialog-focus";
 import { request } from "@/lib/client-request";
 import type { ShortcutBankOption } from "@/components/shortcut-bank-manager";
 
-type Pairing = { id: string; expiresAt: string; setupUrl?: string; status?: string; lastNotificationAt?: string | null };
+type Pairing = { id: string; expiresAt: string; setupUrl?: string; status?: string; lastNotificationAt?: string | null; receiptEnabled?: boolean };
 const linkClass = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
-export function ShortcutConnectWizard({ accounts, banks, installUrl, initialPairingId }: {
+export function ShortcutConnectWizard({ accounts, banks, installUrl, initialPairingId, receiptEnabled }: {
   accounts: Array<{ id: string; name: string }>;
   banks: ShortcutBankOption[];
   installUrl: string | null;
   initialPairingId?: string;
+  receiptEnabled: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(Boolean(initialPairingId));
@@ -68,6 +69,7 @@ export function ShortcutConnectWizard({ accounts, banks, installUrl, initialPair
   }
   const linked = ["paired", "verified"].includes(pairing?.status ?? "");
   const verified = pairing?.status === "verified";
+  const canReceive = pairing?.receiptEnabled ?? receiptEnabled;
   const invalid = ["expired", "canceled", "disconnected", "unavailable"].includes(pairing?.status ?? "");
   return <>
     <section className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-6">
@@ -92,14 +94,15 @@ export function ShortcutConnectWizard({ accounts, banks, installUrl, initialPair
           {step === 1 ? <div className="space-y-4"><Smartphone className="h-8 w-8 text-accent" /><h3 className="font-medium">Añade Finanzas Bancarias</h3><p className="text-sm text-muted-foreground">Necesitas iOS 27. Instálalo una sola vez con ese nombre y confirma «Añadir atajo». Si Safari descarga un archivo, ábrelo desde Descargas y compártelo con Atajos. Después vuelve aquí.</p><a href={installUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>Instalar atajo<ExternalLink className="h-4 w-4" /></a><div><Button variant="secondary" disabled={busy} onClick={() => void prepare()}>{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}Ya lo he añadido</Button></div></div> : null}
           {step === 2 ? <div className="space-y-4">
             <h3 className="font-medium">{verified ? "iPhone vinculado" : linked ? "Confirma la conexión en Atajos" : invalid ? "Vuelve a vincular el iPhone" : "Vincula este iPhone"}</h3>
-            {linked ? <><p role="status" className="text-sm text-accent">{verified ? "El atajo ha comprobado la conexión." : "El atajo debe confirmar tu perfil y comprobar la conexión. Si cancelaste, inicia una nueva vinculación."}</p><Button disabled={!verified} onClick={() => setStep(3)}>Configurar automatización<ArrowRight className="h-4 w-4" /></Button>{!verified ? <Button variant="ghost" onClick={() => { setPairing(null); setStep(0); }}>Volver a vincular</Button> : null}</> : invalid ? <><p className="text-sm text-muted-foreground">El enlace ha caducado, se ha sustituido, se ha desconectado o la cuenta ya no está disponible.</p><Button onClick={() => { setPairing(null); setStep(0); }}>Empezar de nuevo</Button></> : <>
+            {linked ? <><p role="status" className="text-sm text-accent">{verified ? canReceive ? "El atajo ha comprobado la conexión." : "Conexión comprobada. La recepción de notificaciones sigue desactivada." : "El atajo debe confirmar tu perfil y comprobar la conexión. Si cancelaste, inicia una nueva vinculación."}</p><Button disabled={!verified} onClick={() => setStep(3)}>{canReceive ? "Configurar automatización" : "Finalizar vinculación"}<ArrowRight className="h-4 w-4" /></Button>{!verified ? <Button variant="ghost" onClick={() => { setPairing(null); setStep(0); }}>Volver a vincular</Button> : null}</> : invalid ? <><p className="text-sm text-muted-foreground">El enlace ha caducado, se ha sustituido, se ha desconectado o la cuenta ya no está disponible.</p><Button onClick={() => { setPairing(null); setStep(0); }}>Empezar de nuevo</Button></> : <>
               <p className="text-sm text-muted-foreground">Abre el atajo para vincularlo de forma privada y después vuelve a esta pantalla. Si se abre Safari, regresa al icono de tu PWA. No necesitas copiar ninguna clave.</p>
               {pairing?.setupUrl ? <a href={pairing.setupUrl} referrerPolicy="no-referrer" className={linkClass}>Vincular este iPhone<ExternalLink className="h-4 w-4" /></a> : <p className="text-sm text-muted-foreground">Esperando la comprobación del atajo. Si no termina, inicia una nueva conexión.</p>}
               <p className="text-xs text-muted-foreground">El enlace caduca en cinco minutos y solo se puede usar una vez. No lo compartas.</p>
               <div><Button variant="ghost" onClick={() => { setPairing(null); setStep(0); }}>Iniciar una nueva conexión</Button></div>
             </>}
           </div> : null}
-          {step === 3 ? <div className="space-y-4"><h3 className="font-medium">Activa las notificaciones en Atajos</h3><ol className="space-y-3 text-sm">{[
+          {step === 3 && !canReceive ? <div className="space-y-4"><ShieldCheck className="h-8 w-8 text-accent" /><h3 className="font-medium">Tu conexión está preparada</h3><p role="status" className="text-sm text-muted-foreground">No actives todavía la automatización. La recepción permanece desactivada hasta la prueba real en iPhone. Puedes gestionar los bancos vinculados desde esta pantalla.</p><Button onClick={close}>Volver a mis notificaciones</Button></div> : null}
+          {step === 3 && canReceive ? <div className="space-y-4"><h3 className="font-medium">Activa las notificaciones en Atajos</h3><ol className="space-y-3 text-sm">{[
             ["1", "Abre Finanzas Bancarias", "En Atajos, abre el atajo instalado y entra en Editar → Automatización."],
             ["2", "Selecciona Notificación → tu banco", "Crea una automatización por app vinculada y ejecuta siempre el mismo atajo. Si no aparece el disparador, tu versión de iOS no permite este flujo."],
             ["3", "Confirma los permisos de Apple", "Guarda la automatización y permite el envío a tu web. La ejecución bloqueada depende de iOS y debe probarse."],

@@ -8,8 +8,12 @@ import { identifyNotificationBank } from "@/lib/notification-banks";
 import { activeShortcutBindings, shortcutAccountAvailable, shortcutAuthorizationInclude } from "@/lib/shortcut-accounts";
 
 export function shortcutsEnabled() { return process.env.SHORTCUTS_ENABLED === "true"; }
+export function shortcutSetupEnabled() { return shortcutsEnabled() || process.env.SHORTCUTS_SETUP_ENABLED === "true"; }
+export function requireShortcutSetup() {
+  if (!shortcutSetupEnabled()) throw new InputError("La instalación y vinculación de Atajos no están habilitadas.", 503);
+}
 export function requireShortcuts() {
-  if (!shortcutsEnabled()) throw new InputError("La integración de Atajos no está habilitada. Requiere la migración autorizada y su activación posterior.", 503);
+  if (!shortcutsEnabled()) throw new InputError("La recepción de notificaciones está desactivada hasta completar la prueba en un iPhone real. No se ha guardado ninguna notificación ni movimiento.", 503);
 }
 export const shortcutTokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 

@@ -1,12 +1,12 @@
 # Atajos de iPhone: bandeja bancaria provisional
 
-## Entrega universal local: 19/10/2026
+## Instalación universal: 19/10/2026
 
-La siguiente firma debe hacerse sobre **Finanzas Bancarias**, no sobre el archivo BBVA antiguo. Instalación, paquete Mac, bancos/cuentas, limitaciones y migración 17 pendiente: [guía universal vigente](SHORTCUTS-INSTALL.md). BBVA, ING y Trade Republic tienen reglas probadas con mensajes sintéticos; ninguno se anuncia como verificado en un iPhone físico. No se ha hecho push ni cambiado producción en esta entrega. Los apartados siguientes describen el contrato anterior y la configuración avanzada que se conserva por compatibilidad.
+El mantenedor ha confirmado firma e importación en Mac de **Finanzas Bancarias** y publicado su [instalador oficial de iCloud](https://www.icloud.com/shortcuts/7a5a7b1112824f5fbe3de1e4aa89b06e). La PWA permite instalar, vincular y gestionar bancos con `SHORTCUTS_SETUP_ENABLED=true`, manteniendo `SHORTCUTS_ENABLED=false`: no se aceptan notificaciones ni se crean movimientos. BBVA, ING y Trade Republic están probados con mensajes sintéticos, no certificados en un iPhone físico. [Guía vigente y publicación](SHORTCUTS-INSTALL.md). Esta entrega no cambia el esquema ni necesita migraciones; los apartados siguientes conservan el contrato y configuración avanzada históricos.
 
 ## Asistente de instalación
 
-La PWA incorpora **Conectar BBVA**, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. El atajo nativo ya está generado; la firma oficial se intentó en macOS y Apple exige una sesión iCloud. Estado real, archivo y única acción del mantenedor: [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md). Sin una firma/enlace real, el asistente no finge instalación. No hay instalación/automatización silenciosa.
+La PWA incorpora **Conectar banco**, el enlace iCloud real, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. Las credenciales son individuales y la propiedad de cuentas se valida en servidor. El asistente distingue conexión comprobada de recepción habilitada; no invita a activar automatizaciones mientras se espera la prueba física. No hay instalación ni permisos silenciosos.
 
 Las **dieciséis migraciones están aplicadas y registradas en producción** (18/10/2026), incluida `20261018210000_shortcut_guided_pairing`, con RLS/permisos verificados y sin tocar tablas financieras. Las instrucciones manuales siguientes se conservan solo como configuración avanzada y contrato del importador; el flujo guiado no requiere copiar tokens.
 

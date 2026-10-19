@@ -8,6 +8,8 @@ import { spawn } from "node:child_process";
 import { seedVisualFixture } from "./visual-fixture.mjs";
 
 const preview = process.argv.includes("--preview");
+const setupOnly = process.argv.includes("--setup-only");
+if (setupOnly && !process.argv.includes("--web")) throw new Error("Setup-only requires --web");
 if (preview && !process.argv.includes("--web"))
   throw new Error("Preview requires --web");
 const server = createServer();
@@ -40,13 +42,20 @@ const env = {
   TEST_DATABASE_URL: url,
   AUTH_SECRET: randomBytes(32).toString("hex"),
   SHORTCUTS_ENABLED: "true",
+  SHORTCUTS_SETUP_ENABLED: "false",
 };
+if (setupOnly) {
+  env.SHORTCUTS_ENABLED = "false";
+  env.SHORTCUTS_SETUP_ENABLED = "true";
+  env.TEST_SHORTCUT_SETUP_ONLY = "true";
+}
 if (preview) env.SHORTCUTS_ENABLED = "false";
 // Syntactic fixture only. Browser tests never install this nonexistent iCloud shortcut.
 env.SHORTCUTS_BBVA_INSTALL_URL =
   "https://www.icloud.com/shortcuts/" + "0".repeat(32);
 env.SHORTCUTS_INSTALL_URL =
   "https://www.icloud.com/shortcuts/" + "0".repeat(32);
+if (setupOnly) delete env.SHORTCUTS_INSTALL_URL;
 let app;
 let resultCode = 1;
 async function run(args) {
@@ -186,9 +195,10 @@ try {
         "node_modules/vitest/vitest.mjs",
         "run",
         "--maxWorkers=2",
+        ...(setupOnly ? ["tests/database/shortcut-setup.test.ts", "tests/shortcut-install.test.ts"] : []),
       ]);
     if (!code && app)
-      code = await run(["node_modules/@playwright/test/cli.js", "test"]);
+      code = await run(["node_modules/@playwright/test/cli.js", "test", ...(setupOnly ? ["tests/browser/shortcut-setup.spec.ts"] : [])]);
   }
   resultCode = code;
 } finally {

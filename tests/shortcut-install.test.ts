@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shortcutInstallConfig, shortcutOrigin, shortcutSetupLink } from "@/lib/shortcut-install";
+import universalICloud from "../shortcuts/universal-icloud.json";
 
 afterEach(() => vi.unstubAllEnvs());
 describe("instalación Apple sin enlaces ni permisos inventados", () => {
@@ -34,10 +35,17 @@ describe("instalación Apple sin enlaces ni permisos inventados", () => {
   it("no reutiliza el instalador BBVA ni archivos sin firmar para el universal", () => {
     vi.stubEnv("SHORTCUTS_BBVA_INSTALL_URL", "https://www.icloud.com/shortcuts/" + "a".repeat(32));
     vi.stubEnv("SHORTCUTS_INSTALL_URL", "");
-    expect(shortcutInstallConfig("universal").installUrl).toBeNull();
+    expect(shortcutInstallConfig("universal").installUrl).toBe(universalICloud.installUrl);
     for (const value of ["https://finanzas-personales-lime-two.vercel.app/shortcuts/Finanzas-Bancarias_unsigned.shortcut", "https://evil.example/Finanzas-Bancarias.shortcut"]) {
       vi.stubEnv("SHORTCUTS_INSTALL_URL", value);
       expect(shortcutInstallConfig("universal").installUrl).toBeNull();
     }
+  });
+  it("usa el enlace oficial compartido, sin credenciales ni falso certificado iPhone", () => {
+    vi.stubEnv("SHORTCUTS_INSTALL_URL", "");
+    expect(shortcutInstallConfig("universal")).toEqual({ name: "Finanzas Bancarias", installUrl: "https://www.icloud.com/shortcuts/7a5a7b1112824f5fbe3de1e4aa89b06e" });
+    expect(universalICloud.macImportConfirmedByMaintainer).toBe(true);
+    expect(universalICloud.physicalIPhoneTested).toBe(false);
+    expect(JSON.stringify(universalICloud)).not.toMatch(/fp_|pair_|password|Bearer/i);
   });
 });

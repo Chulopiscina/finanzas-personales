@@ -15,7 +15,8 @@ export async function POST(request: Request) {
 }
 export async function DELETE(request: Request) {
   try {
-    const { user } = await requireUser(); requireShortcuts();
+    // Owners can revoke credentials even when receipt is paused.
+    const { user } = await requireUser();
     const input = await readJson<{ id?: string }>(request);
     if (typeof input.id !== "string") throw new InputError("Dispositivo obligatorio.");
     const result = await prisma.shortcutDevice.updateMany({ where: { id: input.id, userId: user.id }, data: { revokedAt: new Date() } });

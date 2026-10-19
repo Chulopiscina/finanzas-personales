@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { InputError } from "@/lib/input-error";
-import { requireShortcuts, shortcutTokenHash } from "@/lib/shortcuts";
+import { requireShortcutSetup, shortcutsEnabled, shortcutTokenHash } from "@/lib/shortcuts";
 import { shortcutInstallConfig, shortcutSetupLink } from "@/lib/shortcut-install";
 import { notificationBank } from "@/lib/notification-banks";
 import { shortcutAccountAvailable, shortcutAuthorizationInclude } from "@/lib/shortcut-accounts";
 
 export async function startShortcutPairing(userId: string, accountId: string, origin: string, sessionId?: string, bankId?: string) {
-  requireShortcuts();
+  requireShortcutSetup();
   if (bankId !== undefined) notificationBank(bankId);
   const variant = bankId === undefined ? "bbva" : "universal";
   if (!shortcutInstallConfig(variant).installUrl) throw new InputError("El atajo todavía no está publicado y verificado. No se ha iniciado la conexión.", 503);
@@ -29,7 +29,7 @@ export async function startShortcutPairing(userId: string, accountId: string, or
 }
 
 export async function exchangeShortcutPairing(value: unknown) {
-  requireShortcuts();
+  requireShortcutSetup();
   if (typeof value !== "string" || !/^pair_[A-Za-z0-9_-]{43}$/.test(value)) throw new InputError("Enlace de vinculación inválido.", 401);
   const codeHash = shortcutTokenHash(value);
   const token = "fp_" + randomBytes(32).toString("base64url");
@@ -55,17 +55,17 @@ export async function exchangeShortcutPairing(value: unknown) {
 }
 
 export async function shortcutPairingStatus(userId: string, id: string) {
-  requireShortcuts();
+  requireShortcutSetup();
   const pairing = await prisma.shortcutPairing.findFirst({ where: { id, userId }, include: { account: true, device: { include: shortcutAuthorizationInclude } } });
   if (!pairing) throw new InputError("Conexión no encontrada.", 404);
   const device = pairing.device;
   const unavailable = device ? !shortcutAccountAvailable(device) : pairing.account.isArchived || pairing.account.currency !== "EUR" || pairing.account.userId !== userId;
   const status = unavailable ? "unavailable" : pairing.canceledAt ? "canceled" : device ? device.revokedAt ? "disconnected" : device.expiresAt <= new Date() ? "expired" : device.lastVerifiedAt ? "verified" : "paired" : pairing.expiresAt <= new Date() || pairing.consumedAt ? "expired" : "waiting";
-  return { id: pairing.id, status, expiresAt: pairing.expiresAt.toISOString(), lastNotificationAt: device?.lastUsedAt?.toISOString() ?? null };
+  return { id: pairing.id, status, receiptEnabled: shortcutsEnabled(), expiresAt: pairing.expiresAt.toISOString(), lastNotificationAt: device?.lastUsedAt?.toISOString() ?? null };
 }
 
 export async function verifyShortcutConnection(authorization: string | null) {
-  requireShortcuts();
+  requireShortcutSetup();
   const token = authorization?.match(/^Bearer (fp_[A-Za-z0-9_-]{43})$/)?.[1];
   if (!token) throw new InputError("Credencial inválida.", 401);
   const tokenHash = shortcutTokenHash(token);
@@ -78,6 +78,6 @@ export async function verifyShortcutConnection(authorization: string | null) {
     if (!reset && device.windowCount >= 120) throw new InputError("Demasiadas comprobaciones. Reintenta más tarde.", 429);
     await tx.shortcutDevice.update({ where: { id: device.id }, data: { lastVerifiedAt: now, windowStart: reset ? now : device.windowStart, windowCount: reset ? 1 : { increment: 1 } } });
     // Stable text marker for Shortcuts: boolean-to-text is localized by iOS.
-    return { ok: true, connection: "verified", checkedAt: now.toISOString() };
+    return { ok: true, connection: "verified", receiptEnabled: shortcutsEnabled(), checkedAt: now.toISOString() };
   });
 }

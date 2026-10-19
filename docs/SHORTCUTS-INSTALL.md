@@ -1,18 +1,29 @@
 # Atajo universal: Finanzas Bancarias
 
-## Estado de esta entrega local (19/10/2026)
+## Instalador oficial disponible (19/10/2026)
 
-El atajo definitivo para la siguiente firma es **Finanzas Bancarias**, protocolo 2. [Fuente](../shortcuts/FinanzasBancarias.cherri), [archivo nativo sin firmar](../public/shortcuts/Finanzas-Bancarias_unsigned.shortcut) y [script Mac](../scripts/sign-universal-shortcut.sh).
+El mantenedor ha confirmado firma e importación en macOS de **Finanzas Bancarias**, protocolo 2. Instalador compartido: [enlace oficial de iCloud](https://www.icloud.com/shortcuts/7a5a7b1112824f5fbe3de1e4aa89b06e). Se ha comprobado que Apple muestra ese nombre. La instalación, Storage y las notificaciones en un iPhone físico siguen pendientes de prueba.
+
+La PWA usa ese enlace desde `shortcuts/universal-icloud.json`, sin claves compartidas. `SHORTCUTS_INSTALL_URL` permite sustituirlo solo por un enlace admitido; un valor no seguro bloquea el instalador. `universal-release.json` sigue sin declarar una copia firmada alojada en la web: no se ha recibido ni inventado un binario firmado o su SHA-256. [Fuente](../shortcuts/FinanzasBancarias.cherri), [archivo sin firmar de desarrollo](../public/shortcuts/Finanzas-Bancarias_unsigned.shortcut) y [script Mac de mantenimiento](../scripts/sign-universal-shortcut.sh).
+
+## Preparar sin recibir notificaciones
+
+- `SHORTCUTS_SETUP_ENABLED=true`: permite el asistente, vinculación de un uso, comprobación de conexión y gestión de bancos propios.
+- `SHORTCUTS_ENABLED=false`: bloquea `/events` con 503 **antes de leer o guardar el payload**, aunque la credencial sea válida. No se crean notificaciones ni movimientos. El endpoint de comprobación informa `receiptEnabled=false` sin fingir recepción.
+- Ambos `false`: desactiva la instalación/vinculación. La revocación de dispositivos propios continúa disponible con sesión.
+- La PWA muestra «Recepción desactivada», oculta las credenciales manuales y no invita a activar la automatización tras vincular. Desconectar no borra datos financieros.
+
+La credencial se canjea una sola vez dentro del Atajo y se guarda en su Storage, no en el enlace público ni en el navegador. Cada usuario/dispositivo recibe una credencial independiente; los bancos y cuentas se gestionan con sesión. El Atajo pide confirmar perfil, banco y cuenta antes de guardar la vinculación. Una copia del Atajo conserva una configuración activa: cambiar de perfil la sustituye; no compartir su almacenamiento.
 
 El compilador y los SHA-256 de fuente/archivo se registran en `shortcuts/universal-build.json`. Para regenerar en desarrollo: `node scripts/build-universal-shortcut.mjs <ejecutable-compilado-en-checkout-Cherri-fijado>` y `python3 scripts/verify-shortcut.py public/shortcuts/Finanzas-Bancarias_unsigned.shortcut`. El usuario final no necesita compilador ni Go.
 
 - Un único archivo/enlace para todos los bancos. No contiene bancos, reglas, importes, cuentas ni credenciales preconfiguradas. Añadir un banco requiere actualizar solo el catálogo/reglas del servidor, no el archivo ni su firma.
 - BBVA, ING y Trade Republic tienen perfiles y pruebas **con mensajes sintéticos** en catalán, castellano e inglés. **Ninguno está certificado con notificaciones reales de iPhone**. El selector los etiqueta «En pruebas · sin validación en iPhone». No se atribuye a Apple un campo de notificación que no se haya comprobado.
-- No hay firma Apple ni enlace iCloud inventado. El manifiesto `shortcuts/universal-release.json` mantiene `appleSigned=false` y `physicalIPhoneTested=false`. La PWA no ofrece el XML sin firmar como instalador.
+- Hay enlace iCloud real y confirmación del mantenedor en Mac, no certificación iPhone. `shortcuts/universal-release.json` mantiene `appleSigned=false` para el archivo propio no recibido y `physicalIPhoneTested=false`. La PWA nunca ofrece el XML sin firmar como instalador.
 - Se conserva el protocolo 1, las credenciales y el archivo BBVA anteriores. No se reutiliza un enlace BBVA para instalar el universal. Para instalar el nuevo, usar su propio nombre; no cambiar el nombre de un atajo antiguo.
-- **Sin push ni cambios en producción.** La migración 17 solo se aplica en bases locales desechables durante las pruebas. Según la comprobación de la entrega anterior, producción tiene 16/16, no 11/14.
+- Esta entrega no añade tablas, columnas ni migraciones. El esquema universal ya fue preparado en producción; no repetir SQL ni migraciones anteriores. El build continúa ejecutando solo `prisma generate && next build`.
 
-## Acción exacta en un Mac
+## Firma en Mac: mantenimiento, no instalación de usuarios
 
 1. Llevar al Mac el nuevo paquete `Finanzas-Bancarias-firma-definitiva.zip` de `outputs/` y descomprimirlo en Descargas. Sustituye a los ZIP anteriores, que se conservan: incluye el universal con UUID corregidos, XML y binario, control mínimo, diagnóstico automático, instrucciones y hashes. No contiene tokens. [Diagnóstico 500/502 y límites](SHORTCUTS-SIGNING.md).
 2. En un Mac con Atajos y sesión iCloud, abrir Terminal y ejecutar:
@@ -23,7 +34,7 @@ bash "$HOME/Downloads/Finanzas-Bancarias-firma-definitiva/firmar-en-Mac.sh"
 
 El script valida el plist, convierte una copia temporal a binario y ejecuta **únicamente el comando oficial de firma de Apple**. No instala herramientas, no pide contraseñas bancarias, no modifica el original ni sobrescribe una salida existente. Apple recibe una copia del código genérico; no datos financieros. Si falta sesión iCloud, detenerse y abrir la sesión personalmente, sin facilitar credenciales al agente.
 
-La copia temporal mantiene la extensión `.shortcut`. Se verifican XML, binario y hashes, se compara la firma del universal con un control Texto y se entrega un informe sin credenciales. Solo se entrega una salida no vacía con cabecera AEA1 si el comando Apple termina correctamente; no es validación criptográfica independiente. **Corregidos los UUID repetidos en 13 bloques sin quitar ninguna de las 111 acciones; firma, importación y ejecución de este paquete pendientes de prueba real en macOS/iPhone.** No se atribuyen los errores 500/502 a una causa única sin el resultado del Mac.
+La copia temporal mantiene la extensión `.shortcut`. Se verifican XML, binario y hashes y se compara el universal con un control Texto. Solo se entrega una salida AEA1 si Apple termina correctamente; no es validación criptográfica independiente. Los UUID repetidos de los 13 bloques fueron corregidos sin quitar las 111 acciones. El mantenedor ha confirmado después firma e importación en Mac del instalador iCloud publicado; sigue pendiente probar ejecución/notificaciones en iPhone. El diagnóstico se conserva para futuras firmas, sin atribuir los antiguos errores 500/502 a una causa demostrada.
 
 3. Entregar el resultado **Finanzas Bancarias.shortcut** al mantenedor. No hace falta construir acciones, copiar tokens ni crear un enlace iCloud. La firma y la prueba física son cosas distintas.
 
@@ -34,13 +45,13 @@ plutil -convert binary1 "$HOME/Downloads/Finanzas-Bancarias_unsigned.shortcut"
 shortcuts sign --mode anyone --input "$HOME/Downloads/Finanzas-Bancarias_unsigned.shortcut" --output "$HOME/Downloads/Finanzas Bancarias.shortcut"
 ```
 
-## Publicación posterior, todavía no autorizada
+## Publicación de esta actualización
 
-1. Revisar y aplicar **solo** `20261019100000_universal_shortcut_banks` tras autorización y backup. No repetir las 16 anteriores. Crea ShortcutBankBinding con RLS, añade campos de versión/banco y permite cuenta nula únicamente en la bandeja provisional. No modifica User, Account, Transaction, saldos ni extractos. No usar reset ni editar `_prisma_migrations`.
-2. Si se ejecuta primero el SQL manualmente, verificar su estructura y después `prisma migrate resolve --applied 20261019100000_universal_shortcut_banks`. Si se aplica por Prisma, no ejecutar su SQL aparte. Nunca duplicar ambos caminos. El build sigue sin migraciones.
-3. Incorporar y comprobar la procedencia de la copia firmada, guardar su hash en `shortcuts/universal-release.json` y el archivo en `public/shortcuts/Finanzas-Bancarias.shortcut`. El nombre de descarga debe ser **Finanzas Bancarias.shortcut**. Probar instalación limpia en iPhone con ese nombre antes de anunciar compatibilidad real. No considerar el prefijo AEA1 por sí solo prueba criptográfica de autenticidad.
-4. Mantener `SHORTCUTS_ENABLED` como interruptor. Usar un solo instalador universal: archivo firmado del mismo origen o `SHORTCUTS_INSTALL_URL` con un enlace iCloud REAL. La antigua `SHORTCUTS_BBVA_INSTALL_URL` se conserva solo para el legado.
-5. Solo con autorización: tests/build, commit/push y comprobar Vercel Ready, login, dashboard, movimientos y bandeja. El dominio del atajo está fijado a producción; no usar la copia productiva para enviar datos a staging.
+1. No ejecutar migraciones: no hay cambios de esquema en esta actualización.
+2. En Vercel Production, configurar `SHORTCUTS_SETUP_ENABLED=true` y conservar `SHORTCUTS_ENABLED=false`. No cambiar conexiones, secretos ni contraseñas. El instalador iCloud ya está incluido en el código.
+3. Ejecutar pruebas completas y `node scripts/test-local-db.mjs --web --setup-only`, que verifica instalación/vinculación y recepción bloqueada en una base local desechable, tanto en escritorio como en móvil.
+4. Con la autorización recibida: commit/push a main y verificar Vercel Ready, login, dashboard y `/notifications`. Un POST a `/events` debe seguir devolviendo 503, sin crear datos.
+5. Probar en iPhone instalación desde iCloud y vinculación desde la PWA, sin copiar tokens ni activar aún automatizaciones. La recepción solo se habilitará para la prueba física posterior explícitamente autorizada. No crear gastos de prueba en producción ni provocar pagos bancarios.
 
 La workflow histórica `bbva-shortcut.yml` ahora compila el universal con Cherri fijado a `bcc0095754e2cc0baaeb4d93dae172b8153b4716` (GPL-2.0, compilador no distribuido). Solo publica release si `shortcuts sign` termina correctamente; un run verde con aviso de falta de iCloud **no** significa firma obtenida. No hay firma de terceros ni servicios de pago. Para una release realmente firmada por CI: `node scripts/install-signed-shortcut.mjs <sha-completo>` verifica ejecución, release, SHA-256 y formato, sin afirmar prueba física.
 

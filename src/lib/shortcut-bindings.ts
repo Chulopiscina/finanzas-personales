@@ -1,10 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { InputError } from "@/lib/input-error";
 import { notificationBank } from "@/lib/notification-banks";
-import { requireShortcuts } from "@/lib/shortcuts";
+import { requireShortcuts, requireShortcutSetup } from "@/lib/shortcuts";
 
 export async function setShortcutBinding(userId: string, deviceId: string, bankId: string, accountId: string | null) {
-  requireShortcuts(); notificationBank(bankId);
+  requireShortcutSetup(); notificationBank(bankId);
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${"pairing:" + userId}))`;
     const device = await tx.shortcutDevice.findFirst({ where: { id: deviceId, userId, isUniversal: true, revokedAt: null, expiresAt: { gt: new Date() } } });

@@ -1,5 +1,6 @@
 import release from "../../shortcuts/bbva-release.json";
 import universalRelease from "../../shortcuts/universal-release.json";
+import universalICloud from "../../shortcuts/universal-icloud.json";
 
 export const BBVA_SHORTCUT_NAME = "Finanzas BBVA";
 export const UNIVERSAL_SHORTCUT_NAME = "Finanzas Bancarias";
@@ -8,7 +9,7 @@ export type ShortcutVariant = "bbva" | "universal";
 export function shortcutInstallConfig(variant: ShortcutVariant = "bbva") {
   const artifact = variant === "universal" ? universalRelease : release;
   const name = variant === "universal" ? UNIVERSAL_SHORTCUT_NAME : BBVA_SHORTCUT_NAME;
-  const value = variant === "universal" ? process.env.SHORTCUTS_INSTALL_URL : process.env.SHORTCUTS_BBVA_INSTALL_URL;
+  const value = variant === "universal" ? process.env.SHORTCUTS_INSTALL_URL || (artifact.appleSigned ? artifact.origin + artifact.path : universalICloud.installUrl) : process.env.SHORTCUTS_BBVA_INSTALL_URL;
   if (!value) return { installUrl: artifact.appleSigned ? artifact.origin + artifact.path : null, name };
   try {
     const url = new URL(value);

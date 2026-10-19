@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { shortcutsEnabled } from "@/lib/shortcuts";
+import { shortcutSetupEnabled, shortcutsEnabled } from "@/lib/shortcuts";
 import { NotificationsManager } from "@/components/notifications-manager";
 import { shortcutInstallConfig } from "@/lib/shortcut-install";
 import { notificationBanks } from "@/lib/notification-banks";
@@ -9,7 +9,7 @@ import { notificationBanks } from "@/lib/notification-banks";
 export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ page?: string; pairing?: string }> }) {
   const session = await getSessionUser();
   if (!session) return null;
-  if (!shortcutsEnabled()) return <section className="space-y-4"><h1 className="text-2xl font-semibold">Notificaciones</h1><p className="text-muted-foreground">Integración pendiente de activación y migración autorizada. Los datos financieros existentes no se modifican.</p><Link className="text-accent underline" href="/dashboard">Volver al dashboard</Link></section>;
+  if (!shortcutSetupEnabled()) return <section className="space-y-4"><h1 className="text-2xl font-semibold">Notificaciones</h1><p className="text-muted-foreground">La conexión de Atajos está desactivada. Puedes seguir importando tus extractos.</p><Link className="text-accent underline" href="/dashboard">Volver al dashboard</Link></section>;
   const params = await searchParams;
   const page = Math.min(10000, Math.max(1, Math.trunc(Number(params.page) || 1)));
   const userId = session.user.id;
@@ -22,7 +22,7 @@ export default async function NotificationsPage({ searchParams }: { searchParams
   return <div className="space-y-6">
     <h1 className="text-2xl font-semibold">Notificaciones</h1>
     <p className="text-sm text-muted-foreground">Provisionales: no se incluyen en saldos, gastos ni ciclos de nómina.</p>
-    <NotificationsManager banks={notificationBanks.map(b => ({ id: b.id, name: b.name, status: b.status }))} accounts={accounts} installUrl={shortcutInstallConfig("universal").installUrl} initialPairingId={typeof params.pairing === "string" && params.pairing.length <= 100 ? params.pairing : undefined} devices={devices.map((device) => ({ id: device.id, name: device.name, isUniversal: device.isUniversal, bankBindings: device.bankBindings, account: device.account.name, revoked: Boolean(device.revokedAt), expiresAt: device.expiresAt.toISOString(), lastVerifiedAt: device.lastVerifiedAt?.toISOString() ?? null, lastUsedAt: device.lastUsedAt?.toISOString() ?? null }))} events={events.map((event) => ({ ...event, status: event.status === "RECONCILED" && !event.transactionId ? "REVIEW" : event.status, reason: event.status === "RECONCILED" && !event.transactionId ? "El movimiento vinculado fue eliminado. Requiere revisión." : event.reason, amount: event.amount === null ? null : Number(event.amount), account: event.account?.name ?? "Cuenta pendiente", receivedAt: event.receivedAt.toISOString(), occurredAt: event.occurredAt?.toISOString() ?? null }))} />
+    <NotificationsManager receiptEnabled={shortcutsEnabled()} banks={notificationBanks.map(b => ({ id: b.id, name: b.name, status: b.status }))} accounts={accounts} installUrl={shortcutInstallConfig("universal").installUrl} initialPairingId={typeof params.pairing === "string" && params.pairing.length <= 100 ? params.pairing : undefined} devices={devices.map((device) => ({ id: device.id, name: device.name, isUniversal: device.isUniversal, bankBindings: device.bankBindings, account: device.account.name, revoked: Boolean(device.revokedAt), expiresAt: device.expiresAt.toISOString(), lastVerifiedAt: device.lastVerifiedAt?.toISOString() ?? null, lastUsedAt: device.lastUsedAt?.toISOString() ?? null }))} events={events.map((event) => ({ ...event, status: event.status === "RECONCILED" && !event.transactionId ? "REVIEW" : event.status, reason: event.status === "RECONCILED" && !event.transactionId ? "El movimiento vinculado fue eliminado. Requiere revisión." : event.reason, amount: event.amount === null ? null : Number(event.amount), account: event.account?.name ?? "Cuenta pendiente", receivedAt: event.receivedAt.toISOString(), occurredAt: event.occurredAt?.toISOString() ?? null }))} />
     <nav className="flex items-center justify-between text-sm" aria-label="Paginación de notificaciones">
       {page > 1 ? <Link href={`/notifications?page=${page - 1}`} className="text-accent underline">Anterior</Link> : <span />}
       <span>{page} / {Math.max(1, Math.ceil(total / 25))}</span>
