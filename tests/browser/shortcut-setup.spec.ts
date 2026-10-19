@@ -10,7 +10,8 @@ test("instala y vincula desde el asistente, sin tokens manuales ni notificacione
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
   const before = (await (await page.request.get("/api/dashboard")).json()).metrics;
-  await page.goto("/notifications");
+  if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú", exact: true }).click();
+  await page.getByRole("link", { name: "Notificaciones", exact: true }).click();
   await expect(page.getByText(/Recepción desactivada\. Puedes instalar/)).toBeVisible();
   await expect(page.getByText("Configuración avanzada", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Conectar banco", exact: true }).click();
