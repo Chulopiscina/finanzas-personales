@@ -2,16 +2,18 @@ import { bankText, cleanBankDescription } from "@/lib/bank-text";
 import { classify, parseSpanishAmount, parseSpanishDate } from "@/lib/csv";
 import { InputError } from "@/lib/input-error";
 import { cents } from "@/lib/money";
+import { bankNotificationRules } from "@/lib/notification-banks";
 
 export type NotificationInput = {
   eventId: string; body: string; title?: string; subtitle?: string; sourceApp?: string;
   occurredAt?: string; merchant?: string; bankReference?: string;
+  bankId?: string;
 };
 
 export function notificationInput(value: unknown): NotificationInput {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new InputError("Se esperaba un objeto JSON.");
   const input = value as Record<string, unknown>;
-  const limits: Record<keyof NotificationInput, number> = { eventId: 128, body: 6000, title: 300, subtitle: 300, sourceApp: 100, occurredAt: 40, merchant: 300, bankReference: 150 };
+  const limits: Record<keyof NotificationInput, number> = { eventId: 128, body: 6000, title: 300, subtitle: 300, sourceApp: 100, occurredAt: 40, merchant: 300, bankReference: 150, bankId: 60 };
   const result: Record<string, string> = {};
   for (const [key, max] of Object.entries(limits)) {
     if (input[key] === undefined || input[key] === null) continue;
@@ -22,14 +24,15 @@ export function notificationInput(value: unknown): NotificationInput {
   return result as NotificationInput;
 }
 
-export function interpretNotification(input: NotificationInput) {
+export function interpretNotification(input: NotificationInput, bankId?: string | null) {
   const original = [input.title, input.subtitle, input.body].filter(Boolean).join(" ");
   const text = bankText(original);
-  const reversed = /\b(anulad[oa]|anullat|cancelled|canceled|reversed|reversal|liberada|alliberada|released)\b/.test(text);
+  const rules = bankId ? bankNotificationRules[bankId] : undefined;
+  const reversed = /\b(anulad[oa]|anullat|anul lat|cancelled|canceled|reversed|reversal|liberada|alliberada|released|declined|denegad[oa]|rebutjat)\b/.test(text);
   const hold = /\b(preautorizacion|preautoritzacio|preauthorization|preauthorisation|retencion|retencio|hold|reserved|reservation|bloqueado|pendent|pending)\b/.test(text);
   const refund = /\b(reembolso|devolucion|devolucio|refund|refunded)\b/.test(text);
-  const incoming = refund || /\b(recibid[oa]|rebut|rebuda|received|ingreso|ingres|deposit|nomina|nomines|salary|payroll)\b/.test(text);
-  const outgoing = /\b(pago|pagament|pagat|paid|payment|purchase|compra|cargo|carrec|charge|spent|enviado|enviat|withdrawal|retirada)\b/.test(text);
+  const incoming = refund || Boolean(rules?.incoming.test(text)) || /\b(recibid[oa]|rebut|rebuda|received|ingreso|ingres|deposit|nomina|nomines|salary|payroll)\b/.test(text);
+  const outgoing = Boolean(rules?.outgoing.test(text)) || /\b(pago|pagament|pagat|paid|payment|purchase|compra|cargo|carrec|charge|spent|enviado|enviat|withdrawal|retirada)\b/.test(text);
   const numeric = "[+-]?(?:\\d{1,3}(?:[.,]\\d{3})+|\\d+)(?:[.,]\\d{1,2})?";
   const currencies = "EUR\\b|€|USD\\b|GBP\\b";
   const tokens = [...original.replace(/[−–]/g, "-").matchAll(new RegExp(`(?<![\\d.,])(?:(${numeric})\\s*(${currencies})|(${currencies})\\s*(${numeric})(?![\\d.,]))`, "gi"))];
@@ -41,13 +44,22 @@ export function interpretNotification(input: NotificationInput) {
   const ambiguousPrefixSign = Boolean(token?.[3] && /[+−–-]\s*$/.test(original.slice(0, token.index)));
   let amount: number | null = Number.isFinite(parsed) && currency === "EUR" && !ambiguousPrefixSign && (hasSign || incoming !== outgoing) ? parsed : null;
   if (amount !== null && !hasSign) amount = Math.abs(amount) * (incoming ? 1 : -1);
+  // Universal clients must not reconcile a sign contradicting the description.
+  if (bankId !== undefined && amount !== null && ((incoming && outgoing) || (amount < 0 && incoming) || (amount > 0 && outgoing))) amount = null;
   let occurredAt: Date | null = null;
   if (input.occurredAt) occurredAt = parseSpanishDate(input.occurredAt);
-  const merchant = input.merchant?.trim() || null;
+  if (!occurredAt && bankId !== undefined) {
+    const dates = [...original.matchAll(/\b(20\d{2}-\d{2}-\d{2})\b/g)];
+    const labelled = original.match(/(?:^|\n)(?:fecha(?: de (?:operaci[oó]n|cargo))?|data(?: d['’]operaci[oó])?|(?:transaction |booking )?date)\s*:\s*(20\d{2}-\d{2}-\d{2})\b/i);
+    // A lone ISO date may be an expiry date, not the date of the bank operation.
+    if (dates.length === 1 && labelled) try { occurredAt = parseSpanishDate(labelled[1]); } catch { /* Invalid bank date remains unconfirmed. */ }
+  }
+  const merchant = input.merchant?.trim() || (bankId !== undefined ? original.match(/(?:^|\n)(?:comercio|comerç|merchant)\s*:\s*([^\n]+)/i)?.[1]?.trim() : null) || null;
+  const bankReference = input.bankReference?.trim() || (bankId !== undefined ? original.match(/(?:^|\n)(?:referencia|referència|reference)\s*:\s*([^\n]+)/i)?.[1]?.trim().slice(0, 150) : null) || null;
   const complete = amount !== null && occurredAt !== null;
   const status = reversed ? "REVERSED" : hold ? "AUTHORIZATION" : complete ? "PENDING" : "REVIEW";
   return {
-    amount, currency, occurredAt, merchant, bankReference: input.bankReference?.trim() || null,
+    amount, currency, occurredAt, merchant, bankReference,
     categoryName: amount === null ? null : classify(merchant || original, amount).categoryName,
     confidence: complete ? "media" : "baja", status,
     reason: reversed ? "Aviso de anulación/liberación; no equivale a un reembolso confirmado."

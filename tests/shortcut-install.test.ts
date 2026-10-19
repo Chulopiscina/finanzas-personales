@@ -31,4 +31,13 @@ describe("instalación Apple sin enlaces ni permisos inventados", () => {
     vi.stubEnv("TEST_DATABASE_URL", "");
     expect(() => shortcutOrigin("http://localhost:3000")).toThrow();
   });
+  it("no reutiliza el instalador BBVA ni archivos sin firmar para el universal", () => {
+    vi.stubEnv("SHORTCUTS_BBVA_INSTALL_URL", "https://www.icloud.com/shortcuts/" + "a".repeat(32));
+    vi.stubEnv("SHORTCUTS_INSTALL_URL", "");
+    expect(shortcutInstallConfig("universal").installUrl).toBeNull();
+    for (const value of ["https://finanzas-personales-lime-two.vercel.app/shortcuts/Finanzas-Bancarias_unsigned.shortcut", "https://evil.example/Finanzas-Bancarias.shortcut"]) {
+      vi.stubEnv("SHORTCUTS_INSTALL_URL", value);
+      expect(shortcutInstallConfig("universal").installUrl).toBeNull();
+    }
+  });
 });

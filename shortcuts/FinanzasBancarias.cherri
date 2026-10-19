@@ -1,0 +1,98 @@
+#define name Finanzas Bancarias
+#define version 27
+#define color teal
+#define glyph creditCard
+#define inputs text
+#include 'actions/text'
+#include 'actions/web'
+#include 'actions/storage'
+
+// Generic transport only. Bank rules and account routing live on the server.
+// Public distribution has no credentials or preset stored values.
+const origin = "https://finanzas-personales-lime-two.vercel.app"
+@receivedText = ""
+if ShortcutInput {
+    @receivedText = getText(ShortcutInput)
+}
+const inputText = text("{@receivedText}")
+const pairingInput = matchText('^\s*\{\s*"mode"\s*:\s*"pair"', inputText)
+if pairingInput {
+    const setup = getDictionary(inputText)
+    const setupOrigin = "{setup['origin']}"
+    const version = "{setup['version']}"
+    if setupOrigin != origin {
+        alert("Origen no permitido. Abre Conectar banco desde tu web de Finanzas Personales.")
+        stop()
+    }
+    if version != "2" {
+        alert("Vinculacion no compatible. Inicia una nueva conexion universal desde la web.")
+        stop()
+    }
+    const code = "{setup['code']}"
+    const validCode = matchText('^pair_[A-Za-z0-9_-]{43}$', code)
+    if !validCode {
+        alert("Enlace de vinculacion no valido.")
+        stop()
+    }
+    confirm("Vas a enviar notificaciones a tu perfil de Finanzas Personales. Los bancos y cuentas se gestionan desde la web. Sustituye la configuracion local; desconecta en la web los dispositivos que ya no uses.", "Conectar bancos")
+    const exchangeResponse = jsonRequest("{origin}/api/integrations/shortcuts/pairing/exchange", "POST", {"code": "{code}"}, {"Content-Type": "application/json"})
+    const exchange = getDictionary(exchangeResponse)
+    const newToken = "{exchange['token']}"
+    const validToken = matchText('^fp_[A-Za-z0-9_-]{43}$', newToken)
+    if !validToken {
+        alert("No se pudo vincular. Vuelve a la web e inicia una nueva conexion.")
+        stop()
+    }
+    const protocol = "{exchange['protocolVersion']}"
+    if protocol != "2" {
+        alert("El servidor no ha confirmado el protocolo universal. Vuelve a la web; no actives la automatizacion.")
+        stop()
+    }
+    confirm("Perfil: {exchange['profileLabel']}\nBanco: {exchange['bankLabel']}\nCuenta: {exchange['accountLabel']}\nSi no son tu perfil y tu cuenta, cancela. Solo entonces se guardara la conexion.", "Confirma tu perfil")
+    // Shortcut-scoped iOS 27 Storage; never global, exported actions or clipboard.
+    storeValue("finance-token", newToken, false)
+    const checkedResponse = jsonRequest("{origin}/api/integrations/shortcuts/check", "POST", {}, {"Authorization": "Bearer {newToken}", "Content-Type": "application/json"})
+    const checked = getDictionary(checkedResponse)
+    const ok = "{checked['connection']}"
+    if ok != "verified" {
+        alert("No se pudo comprobar la conexion. Revisa su estado en la web antes de automatizar.")
+        stop()
+    }
+    openURL("{origin}/notifications?pairing={exchange['pairingId']}")
+    stop()
+}
+
+const token = getStoredValue("finance-token", false)
+if !token {
+    alert("Primero abre Conectar banco en Finanzas Personales y pulsa Vincular este iPhone.")
+    stop()
+}
+if !inputText {
+    const healthResponse = jsonRequest("{origin}/api/integrations/shortcuts/check", "POST", {}, {"Authorization": "Bearer {token}", "Content-Type": "application/json"})
+    const health = getDictionary(healthResponse)
+    const healthOk = "{health['connection']}"
+    if healthOk == "verified" {
+        alert("Conexion comprobada. Falta recibir una notificacion real. No se ha creado ningun movimiento.")
+    } else {
+        alert("Conexion no disponible. Comprueba los bancos vinculados, la caducidad y el estado en la web.")
+    }
+    stop()
+}
+const length = count(inputText, "Characters")
+if length > 6000 {
+    alert("Notificacion demasiado larga. No se ha enviado. Revisa el extracto en la web.")
+    stop()
+}
+// ID of this send, not a bank transaction reference. No automatic retries.
+const r1 = randomNumber(100000000, 999999999)
+const r2 = randomNumber(100000000, 999999999)
+const r3 = randomNumber(100000000, 999999999)
+const r4 = randomNumber(100000000, 999999999)
+const eventId = "finance-{r1}-{r2}-{r3}-{r4}"
+// Forward original text without guessing bank, amount, date, account or merchant.
+const response = jsonRequest("{origin}/api/integrations/shortcuts/events", "POST", {"eventId": "{eventId}", "body": "{inputText}"}, {"Authorization": "Bearer {token}", "Content-Type": "application/json"})
+const result = getDictionary(response)
+const receivedId = "{result['id']}"
+if !receivedId {
+    alert("No se pudo confirmar la recepcion. Comprueba la bandeja antes de repetir. Tus saldos no han cambiado.")
+}

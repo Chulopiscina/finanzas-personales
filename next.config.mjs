@@ -14,6 +14,10 @@ const nextConfig = {
       { source: "/shortcuts/Finanzas-BBVA.shortcut", headers: [
         { key: "Content-Type", value: "application/x-apple-shortcut" },
         { key: "Content-Disposition", value: 'attachment; filename="Finanzas BBVA.shortcut"' }
+      ] },
+      { source: "/shortcuts/Finanzas-Bancarias.shortcut", headers: [
+        { key: "Content-Type", value: "application/x-apple-shortcut" },
+        { key: "Content-Disposition", value: 'attachment; filename="Finanzas Bancarias.shortcut"' }
       ] }
     ];
   },

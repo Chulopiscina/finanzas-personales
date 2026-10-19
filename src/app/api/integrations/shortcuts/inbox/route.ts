@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { InputError } from "@/lib/input-error";
 import { requireShortcuts } from "@/lib/shortcuts";
 import { prisma } from "@/lib/prisma";
+import { assignNotificationAccount } from "@/lib/shortcut-bindings";
 
 export async function GET(request: Request) {
   try {
@@ -11,6 +12,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url), id = url.searchParams.get("id");
     const event = id ? await prisma.bankNotification.findFirst({ where: { id, userId: user.id } }) : null;
     if (!event) throw new InputError("Notificación no encontrada.", 404);
+    if (!event.accountId) throw new InputError("Asigna primero una cuenta propia a esta notificación.");
     const search = url.searchParams.get("search")?.trim().slice(0, 100);
     const candidates = await prisma.transaction.findMany({ where: { userId: user.id, accountId: event.accountId, bankNotification: null,
       ...(search ? { OR: [{ concept: { contains: search, mode: "insensitive" } }, { cleanDescription: { contains: search, mode: "insensitive" } }] }
@@ -23,14 +25,19 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const { user } = await requireUser(); requireShortcuts();
-    const input = await readJson<{ id?: string; action?: string; transactionId?: string; confirmed?: boolean }>(request);
+    const input = await readJson<{ id?: string; action?: string; transactionId?: string; accountId?: string; confirmed?: boolean }>(request);
     if (typeof input.id !== "string") throw new InputError("Notificación obligatoria.");
     const id = input.id;
+    if (input.action === "assign") {
+      if (input.confirmed !== true || typeof input.accountId !== "string") throw new InputError("Confirma la cuenta de esta notificación.");
+      return NextResponse.json({ ok: true, event: await assignNotificationAccount(user.id, id, input.accountId) });
+    }
     const event = await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${id}))`;
       const event = await tx.bankNotification.findFirst({ where: { id, userId: user.id } });
       if (!event) throw new InputError("Notificación no encontrada.", 404);
       if (input.action === "link") {
+        if (!event.accountId) throw new InputError("Asigna primero una cuenta propia.");
         if (input.confirmed !== true || typeof input.transactionId !== "string") throw new InputError("Confirma el vínculo con el cargo definitivo.");
         const movement = await tx.transaction.findFirst({ where: { id: input.transactionId, userId: user.id, accountId: event.accountId } });
         if (!movement) throw new InputError("El movimiento debe pertenecer a la misma cuenta y usuario.");

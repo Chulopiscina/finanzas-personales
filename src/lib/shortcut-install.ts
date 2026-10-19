@@ -1,18 +1,23 @@
 import release from "../../shortcuts/bbva-release.json";
+import universalRelease from "../../shortcuts/universal-release.json";
 
 export const BBVA_SHORTCUT_NAME = "Finanzas BBVA";
+export const UNIVERSAL_SHORTCUT_NAME = "Finanzas Bancarias";
+export type ShortcutVariant = "bbva" | "universal";
 
-export function shortcutInstallConfig() {
-  const value = process.env.SHORTCUTS_BBVA_INSTALL_URL;
-  if (!value) return { installUrl: release.appleSigned ? release.origin + release.path : null, name: BBVA_SHORTCUT_NAME };
+export function shortcutInstallConfig(variant: ShortcutVariant = "bbva") {
+  const artifact = variant === "universal" ? universalRelease : release;
+  const name = variant === "universal" ? UNIVERSAL_SHORTCUT_NAME : BBVA_SHORTCUT_NAME;
+  const value = variant === "universal" ? process.env.SHORTCUTS_INSTALL_URL : process.env.SHORTCUTS_BBVA_INSTALL_URL;
+  if (!value) return { installUrl: artifact.appleSigned ? artifact.origin + artifact.path : null, name };
   try {
     const url = new URL(value);
     const clean = url.protocol === "https:" && !url.port && !url.username && !url.password && !url.search && !url.hash;
     const iCloud = url.hostname === "www.icloud.com" && /^\/shortcuts\/[a-f0-9]{32}$/i.test(url.pathname);
-    const bundled = release.appleSigned && url.origin === release.origin && url.pathname === release.path;
+    const bundled = artifact.appleSigned && url.origin === artifact.origin && url.pathname === artifact.path;
     const valid = clean && (iCloud || bundled);
-    return { installUrl: valid ? url.href : null, name: BBVA_SHORTCUT_NAME };
-  } catch { return { installUrl: null, name: BBVA_SHORTCUT_NAME }; }
+    return { installUrl: valid ? url.href : null, name };
+  } catch { return { installUrl: null, name }; }
 }
 
 export function shortcutOrigin(value: string) {
@@ -27,7 +32,8 @@ export function shortcutOrigin(value: string) {
   return url.origin;
 }
 
-export function shortcutSetupLink(origin: string, code: string) {
-  const params = new URLSearchParams({ name: BBVA_SHORTCUT_NAME, input: "text", text: JSON.stringify({ mode: "pair", version: 1, origin: shortcutOrigin(origin), code }) });
-  return `shortcuts://run-shortcut?${params}`;
+export function shortcutSetupLink(origin: string, code: string, variant: ShortcutVariant = "bbva") {
+  const params = new URLSearchParams({ name: variant === "universal" ? UNIVERSAL_SHORTCUT_NAME : BBVA_SHORTCUT_NAME, input: "text", text: JSON.stringify({ mode: "pair", version: variant === "universal" ? 2 : 1, origin: shortcutOrigin(origin), code }) });
+  // Apple documents percent-encoded spaces, not HTML form '+' encoding.
+  return `shortcuts://run-shortcut?${params.toString().replace(/\+/g, "%20")}`;
 }

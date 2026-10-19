@@ -43,3 +43,38 @@ describe("atajo nativo BBVA distribuible sin credenciales", () => {
     } else expect(release.sha256).toBeNull();
   });
 });
+
+describe("atajo universal definitivo para firma", () => {
+  const universal = readFileSync("shortcuts/FinanzasBancarias.cherri", "utf8");
+  it("no contiene bancos ni reglas y mantiene un origen fijo antes del canje", () => {
+    expect(universal).toContain("#define name Finanzas Bancarias");
+    expect(universal).toContain('if version != "2"');
+    expect(universal.indexOf("if setupOrigin != origin")).toBeLessThan(universal.indexOf("jsonRequest("));
+    expect(universal).toContain('storeValue("finance-token", newToken, false)');
+    expect(universal).not.toMatch(/\b(?:BBVA|ING|Trade Republic)\b|(?:get|set)Clipboard\(/i);
+    const event = universal.slice(universal.lastIndexOf("const response = jsonRequest("));
+    expect(event).toContain('"body": "{inputText}"');
+    expect(event).not.toMatch(/sourceApp|bankId|occurredAt|amount|accountId|balance|merchant/);
+    expect(universal).toContain("if length > 6000");
+  });
+  it("el archivo compilado no lleva credenciales y no se ofrece sin firma", () => {
+    const plist = readFileSync("public/shortcuts/Finanzas-Bancarias_unsigned.shortcut", "utf8");
+    const build = JSON.parse(readFileSync("shortcuts/universal-build.json", "utf8"));
+    expect(build.actionCount).toBeGreaterThan(90);
+    expect(plist.match(/<key>WFWorkflowActionIdentifier<\/key>/g)).toHaveLength(build.actionCount);
+    expect(createHash("sha256").update(plist).digest("hex")).toBe(build.compiledSha256);
+    expect(createHash("sha256").update(universal).digest("hex")).toBe(build.sourceSha256);
+    expect(universal.indexOf("if ShortcutInput")).toBeLessThan(universal.indexOf("getText(ShortcutInput)"));
+    expect(universal.indexOf("Confirma tu perfil")).toBeLessThan(universal.indexOf('storeValue("finance-token"'));
+    expect(universal).toContain('if protocol != "2"');
+    expect(plist).not.toMatch(/fp_[A-Za-z0-9_-]{43}|pair_[A-Za-z0-9_-]{43}/);
+    const release = JSON.parse(readFileSync("shortcuts/universal-release.json", "utf8"));
+    expect(typeof release.physicalIPhoneTested).toBe("boolean");
+    if (release.appleSigned) {
+      const signed = readFileSync("public" + release.path);
+      expect(signed.subarray(0, 4).toString()).toBe("AEA1");
+      expect(createHash("sha256").update(signed).digest("hex")).toBe(release.sha256);
+    } else expect(release.sha256).toBeNull();
+    expect(readFileSync(".github/workflows/bbva-shortcut.yml", "utf8")).toContain("shortcuts/FinanzasBancarias.cherri");
+  });
+});

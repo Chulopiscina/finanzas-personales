@@ -1,5 +1,9 @@
 # Atajos de iPhone: bandeja bancaria provisional
 
+## Entrega universal local: 19/10/2026
+
+La siguiente firma debe hacerse sobre **Finanzas Bancarias**, no sobre el archivo BBVA antiguo. Instalación, paquete Mac, bancos/cuentas, limitaciones y migración 17 pendiente: [guía universal vigente](SHORTCUTS-INSTALL.md). BBVA, ING y Trade Republic tienen reglas probadas con mensajes sintéticos; ninguno se anuncia como verificado en un iPhone físico. No se ha hecho push ni cambiado producción en esta entrega. Los apartados siguientes describen el contrato anterior y la configuración avanzada que se conserva por compatibilidad.
+
 ## Asistente de instalación
 
 La PWA incorpora **Conectar BBVA**, vinculación de un solo uso sin copiar tokens, comprobación y desconexión. El atajo nativo ya está generado; la firma oficial se intentó en macOS y Apple exige una sesión iCloud. Estado real, archivo y única acción del mantenedor: [SHORTCUTS-INSTALL.md](SHORTCUTS-INSTALL.md). Sin una firma/enlace real, el asistente no finge instalación. No hay instalación/automatización silenciosa.

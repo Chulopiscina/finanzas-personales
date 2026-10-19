@@ -141,6 +141,29 @@ describe.skipIf(!app)("HTTP real: login, autorización, transferencias y sesione
     expect((await call("/api/integrations/shortcuts/devices", "DELETE", { id: device.deviceId })).status).toBe(200);
     expect((await fetch(app + "/api/integrations/shortcuts/check", { method: "POST", headers: { Authorization: "Bearer " + device.token } })).status).toBe(401);
   });
+  it("el universal solo permite gestionar bancos y asignar avisos con sesión y consentimiento", async () => {
+    const pair = await call("/api/integrations/shortcuts/pairing", "POST", { accountId: accountA, bankId: "bbva", consent: true });
+    expect(pair.status).toBe(200);
+    const setup = JSON.parse(new URL((await pair.json()).setupUrl).searchParams.get("text")!);
+    expect(setup.version).toBe(2);
+    const d = await (await fetch(app + "/api/integrations/shortcuts/pairing/exchange", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: setup.code }) })).json();
+    const binding = { deviceId: d.deviceId, bankId: "ing", accountId: accountB };
+    expect((await fetch(app + "/api/integrations/shortcuts/bindings", { method: "PUT", headers: { Authorization: "Bearer " + d.token, "Content-Type": "application/json" }, body: JSON.stringify(binding) })).status).toBe(401);
+    expect((await call("/api/integrations/shortcuts/bindings", "PUT", { ...binding, accountId: foreignAccount })).status).toBe(400);
+    expect((await call("/api/integrations/shortcuts/bindings", "PUT", binding)).status).toBe(200);
+    const csrf = await fetch(app + "/api/integrations/shortcuts/bindings", { method: "PUT", headers: { Cookie: cookie, Origin: "https://foreign.example", "Content-Type": "application/json" }, body: JSON.stringify(binding) });
+    expect(csrf.status).toBe(403);
+    const before = await db.transaction.count({ where: { userId: a } });
+    const body = { eventId: randomUUID(), body: "Pago 10 EUR sin banco" };
+    const response = await fetch(app + "/api/integrations/shortcuts/events", { method: "POST", headers: { Authorization: "Bearer " + d.token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    expect(response.status).toBe(202); const event = await response.json();
+    expect((await call("/api/integrations/shortcuts/inbox?id=" + event.id)).status).toBe(400);
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "assign", accountId: accountB })).status).toBe(400);
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "assign", accountId: foreignAccount, confirmed: true })).status).toBe(400);
+    expect((await call("/api/integrations/shortcuts/inbox", "PATCH", { id: event.id, action: "assign", accountId: accountB, confirmed: true })).status).toBe(200);
+    expect(await db.transaction.count({ where: { userId: a } })).toBe(before);
+    expect((await db.bankNotification.findUniqueOrThrow({ where: { id: event.id } })).body).toBe(body.body);
+  });
   it("invalida la sesión anterior al cambiar contraseña", async () => {
     const created = await (await call("/api/integrations/shortcuts/devices", "POST", { name: "Password revocation", accountId: accountA })).json();
     const pending = await (await call("/api/integrations/shortcuts/pairing", "POST", { accountId: accountA, consent: true })).json();

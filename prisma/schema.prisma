@@ -107,6 +107,7 @@ model User {
   shortcutDevices ShortcutDevice[]
   bankNotifications BankNotification[]
   shortcutPairings ShortcutPairing[]
+  shortcutBankBindings ShortcutBankBinding[]
 
   @@index([role])
   @@index([lastLoginAt])
@@ -133,6 +134,7 @@ model Account {
   shortcutDevices ShortcutDevice[]
   bankNotifications BankNotification[]
   shortcutPairings ShortcutPairing[]
+  shortcutBankBindings ShortcutBankBinding[]
 
   @@unique([userId, name])
   @@index([userId, isArchived])
@@ -406,6 +408,7 @@ model ShortcutDevice {
   accountId String
   account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
   name String
+  isUniversal Boolean @default(false)
   tokenHash String @unique
   expiresAt DateTime
   revokedAt DateTime?
@@ -416,6 +419,7 @@ model ShortcutDevice {
   createdAt DateTime @default(now())
   events BankNotification[]
   pairing ShortcutPairing?
+  bankBindings ShortcutBankBinding[]
 
   @@index([userId, createdAt])
 }
@@ -428,6 +432,7 @@ model ShortcutPairing {
   accountId String
   account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
   codeHash String @unique
+  bankId String?
   createdAt DateTime @default(now())
   expiresAt DateTime
   consumedAt DateTime?
@@ -445,8 +450,9 @@ model BankNotification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   deviceId String
   device ShortcutDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  accountId String
-  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  accountId String?
+  account Account? @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  bankId String?
   eventId String
   title String?
   subtitle String?
@@ -469,4 +475,22 @@ model BankNotification {
   @@unique([deviceId, eventId])
   @@index([userId, accountId, status, occurredAt])
   @@index([userId, receivedAt])
+}
+
+// Routing is configured by the owner on the web, never by the bearer client.
+model ShortcutBankBinding {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId String
+  device ShortcutDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bankId String
+  accountId String
+  account Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([deviceId, bankId])
+  @@index([userId, deviceId])
+  @@index([accountId])
 }

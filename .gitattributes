@@ -1,0 +1,3 @@
+*.cherri text eol=lf
+*.sh text eol=lf
+*.shortcut -text

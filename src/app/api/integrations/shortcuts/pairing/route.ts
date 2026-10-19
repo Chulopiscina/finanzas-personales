@@ -11,10 +11,11 @@ export async function POST(request: Request) {
   try {
     const { user, sessionId } = await requireUser();
     const input = await readNotificationJson(request);
-    if (!input || typeof input !== "object" || Array.isArray(input) || !("accountId" in input) || typeof input.accountId !== "string" || !("consent" in input) || input.consent !== true) throw new InputError("Selecciona una cuenta y autoriza el envío de las notificaciones BBVA.");
+    if (!input || typeof input !== "object" || Array.isArray(input) || !("accountId" in input) || typeof input.accountId !== "string" || !("consent" in input) || input.consent !== true) throw new InputError("Selecciona una cuenta y autoriza el envío de las notificaciones bancarias.");
+    if ("bankId" in input && typeof input.bankId !== "string") throw new InputError("Banco no válido.");
     // Origin is checked against Host by middleware; Next's internal URL can use localhost.
     const origin = request.headers.get("origin") ?? new URL(request.url).origin;
-    return NextResponse.json(await startShortcutPairing(user.id, input.accountId, origin, sessionId), { headers });
+    return NextResponse.json(await startShortcutPairing(user.id, input.accountId, origin, sessionId, "bankId" in input ? input.bankId as string : undefined), { headers });
   } catch (error) { return jsonError(error); }
 }
 export async function GET(request: Request) {

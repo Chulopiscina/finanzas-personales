@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { InputError } from "@/lib/input-error";
 import { interpretNotification, matchesNotification, notificationInput } from "@/lib/bank-notification";
 import { cents } from "@/lib/money";
+import { identifyNotificationBank } from "@/lib/notification-banks";
+import { activeShortcutBindings, shortcutAccountAvailable, shortcutAuthorizationInclude } from "@/lib/shortcut-accounts";
 
 export function shortcutsEnabled() { return process.env.SHORTCUTS_ENABLED === "true"; }
 export function requireShortcuts() {
@@ -39,8 +41,8 @@ export async function receiveNotification(authorization: string | null, payload:
   const result = await prisma.$transaction(async (tx) => {
     // Lock per credential: rate limits and retries remain atomic across serverless instances.
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${tokenHash}))`;
-    const device = await tx.shortcutDevice.findUnique({ where: { tokenHash }, include: { account: { select: { isArchived: true, userId: true, currency: true } } } });
-    if (!device || device.revokedAt || device.expiresAt <= new Date() || device.account.isArchived || device.account.currency !== "EUR" || device.account.userId !== device.userId) throw new InputError("Token caducado, revocado o cuenta no disponible.", 401);
+    const device = await tx.shortcutDevice.findUnique({ where: { tokenHash }, include: shortcutAuthorizationInclude });
+    if (!device || device.revokedAt || device.expiresAt <= new Date() || !shortcutAccountAvailable(device)) throw new InputError("Token caducado, revocado o cuenta no disponible.", 401);
     const now = new Date(), reset = now.getTime() - device.windowStart.getTime() >= 3_600_000;
     if (!reset && device.windowCount >= 120) throw new InputError("Demasiadas notificaciones. Reintenta más tarde.", 429);
     await tx.shortcutDevice.update({ where: { id: device.id }, data: { lastUsedAt: now, windowStart: reset ? now : device.windowStart, windowCount: reset ? 1 : { increment: 1 } } });
@@ -51,9 +53,17 @@ export async function receiveNotification(authorization: string | null, payload:
       if (Object.keys(raw).length !== Object.keys(input).length || Object.entries(input).some(([key, value]) => raw[key] !== value)) throw new InputError("eventId ya utilizado con contenido diferente.", 409);
       return { id: existing.id, status: existing.status, duplicate: true };
     }
-    const analysis = interpretNotification(input);
-    const event = await tx.bankNotification.create({ data: { ...analysis, userId: device.userId, deviceId: device.id, accountId: device.accountId, eventId: input.eventId, body: input.body, title: input.title, subtitle: input.subtitle, sourceApp: input.sourceApp, rawPayload: input as unknown as Prisma.InputJsonValue } });
-    await reconcileNotifications(tx, device.userId, device.accountId, event.id);
+    const bankId = device.isUniversal ? identifyNotificationBank(input) : null;
+    const binding = device.isUniversal ? activeShortcutBindings(device).find(b => b.bankId === bankId) : null;
+    const accountId = device.isUniversal ? binding?.accountId ?? null : device.accountId;
+    const analysis = interpretNotification(input, device.isUniversal ? bankId : undefined);
+    if (device.isUniversal && !accountId) {
+      // Unknown/ambiguous app identity must never silently fall back to the first bank.
+      if (!["AUTHORIZATION", "REVERSED"].includes(analysis.status)) analysis.status = "REVIEW";
+      analysis.reason = "Banco o cuenta sin identificar/vincular. Asigna la cuenta manualmente; no se ha creado ningún movimiento. " + analysis.reason;
+    }
+    const event = await tx.bankNotification.create({ data: { ...analysis, bankId, userId: device.userId, deviceId: device.id, accountId, eventId: input.eventId, body: input.body, title: input.title, subtitle: input.subtitle, sourceApp: input.sourceApp, rawPayload: input as unknown as Prisma.InputJsonValue } });
+    if (accountId) await reconcileNotifications(tx, device.userId, accountId, event.id);
     const updated = await tx.bankNotification.findUniqueOrThrow({ where: { id: event.id }, select: { id: true, status: true } });
     return { ...updated, duplicate: false };
   });

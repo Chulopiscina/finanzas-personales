@@ -15,10 +15,11 @@ const directory = await mkdtemp(join(root, "finanzas-tests-"));
 if (!resolve(directory).startsWith(root + "\\") && !resolve(directory).startsWith(root + "/")) throw new Error("Invalid test directory");
 const password = randomBytes(24).toString("hex");
 const pg = new EmbeddedPostgres({ databaseDir: directory, port, user: "postgres", password, persistent: false, postgresFlags: ["-h", "127.0.0.1"], onLog: () => {}, onError: () => {} });
-const url = `postgresql://postgres:${password}@127.0.0.1:${port}/finanzas_test?schema=app`;
+const url = `postgresql://postgres:${password}@127.0.0.1:${port}/finanzas_test?schema=app&connection_limit=3`;
 const env = { ...process.env, DATABASE_URL: url, DIRECT_URL: url, TEST_DATABASE_URL: url, AUTH_SECRET: randomBytes(32).toString("hex"), SHORTCUTS_ENABLED: "true" };
 // Syntactic fixture only. Browser tests never install this nonexistent iCloud shortcut.
 env.SHORTCUTS_BBVA_INSTALL_URL = "https://www.icloud.com/shortcuts/" + "0".repeat(32);
+env.SHORTCUTS_INSTALL_URL = "https://www.icloud.com/shortcuts/" + "0".repeat(32);
 let app;
 let resultCode = 1;
 async function run(args) {
@@ -57,7 +58,9 @@ try {
       if (!ready) throw new Error("El servidor de pruebas no arrancó.");
     }
   }
-  if (!code) code = await run(["node_modules/vitest/vitest.mjs", "run"]);
+  // Each database test owns multiple Prisma clients. Bound their combined pools
+  // instead of scaling connections with the host CPU count.
+  if (!code) code = await run(["node_modules/vitest/vitest.mjs", "run", "--maxWorkers=2"]);
   if (!code && app) code = await run(["node_modules/@playwright/test/cli.js", "test"]);
   resultCode = code;
 } finally {
