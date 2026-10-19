@@ -1,5 +1,6 @@
 import { CategoriesManager } from "@/components/categories-manager";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
 
 export default async function CategoriesPage() {
@@ -16,10 +17,7 @@ export default async function CategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Categorías</h1>
-        <p className="text-sm text-muted-foreground">Crea categorías nuevas y archiva las que ya no uses.</p>
-      </header>
+      <PageHeader title="Categorías" description="Organiza tu dinero con categorías que tengan sentido para ti." />
       <CategoriesManager initialCategories={categories} />
     </div>
   );

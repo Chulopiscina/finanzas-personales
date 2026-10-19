@@ -1,5 +1,6 @@
 import { AdminPanel } from "@/components/admin-panel";
 import { requireAdmin } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
 import { getAdminStats } from "@/lib/finance";
 
 export default async function AdminPage() {
@@ -8,10 +9,7 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Administración</h1>
-        <p className="text-sm text-muted-foreground">Usuarios, actividad y estadísticas globales</p>
-      </header>
+      <PageHeader title="Administración" description="Usuarios, actividad y estadísticas globales" />
       <AdminPanel data={data} />
     </div>
   );

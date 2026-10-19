@@ -1,5 +1,7 @@
 ﻿import { RecurringPaymentsManager } from "@/components/recurring-payments-manager";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
+import { PlanningNavigation } from "@/components/planning-navigation";
 import { toNumber } from "@/lib/finance";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
 import { prisma } from "@/lib/prisma";
@@ -39,10 +41,8 @@ export default async function RecurringPaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Pagos recurrentes</h1>
-        <p className="text-sm text-muted-foreground">Planifica cobros futuros sin convertirlos en movimientos reales.</p>
-      </header>
+      <PageHeader title="Pagos recurrentes" description="Anticípate a tus próximos pagos. Previsiones, no gastos reales." />
+      <PlanningNavigation />
       <RecurringPaymentsManager initialPayments={preparedPayments} accounts={accounts} categories={categories} />
     </div>
   );

@@ -277,7 +277,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
+      <section className="border-b border-border pb-5">
         <label className="text-sm font-medium text-card-foreground">Cuenta del extracto</label>
         <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
           <Select value={accountId} onChange={(event) => setAccountId(event.target.value)} disabled={loading || accounts.length <= 1 || Boolean(preview)}>
@@ -291,7 +291,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
         </div>
       </section>
 
-      <section className="grid gap-3 rounded-lg border border-border bg-card p-4 text-sm shadow-sm md:grid-cols-4">
+      <section className="flex flex-wrap items-center gap-3 py-3 text-xs">
         <div>
           <p className="font-medium text-card-foreground">Bancos soportados</p>
           <p className="mt-1 text-muted-foreground">La importacion siempre requiere confirmacion.</p>
@@ -309,7 +309,7 @@ export function UploadDropzone({ accounts }: { accounts: AccountOption[] }) {
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={cn(
-          "flex min-h-72 flex-col items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center transition",
+          "flex min-h-80 flex-col items-center justify-center rounded-lg border border-dashed bg-card p-6 text-center transition-colors duration-150 sm:p-10",
           dragging ? "border-accent bg-accent/10" : "border-border",
           preview && "opacity-70"
         )}

@@ -13,9 +13,9 @@ export function Button({ className, variant = "primary", size = "md", ...props }
     <button
       aria-label={props["aria-label"] ?? props.title}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md border text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0",
         variant === "primary" &&
-          "border-accent bg-accent text-accent-foreground hover:bg-accent/90",
+          "border-accent bg-accent text-accent-foreground shadow-sm hover:bg-accent/90 active:bg-accent/80",
         variant === "secondary" &&
           "border-border bg-card text-card-foreground hover:bg-muted",
         variant === "ghost" &&

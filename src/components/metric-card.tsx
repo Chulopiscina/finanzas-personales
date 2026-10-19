@@ -22,8 +22,8 @@ export function MetricCard({
     <section className={cn("rounded-lg border border-border bg-card p-4 shadow-sm", emphasis && "bg-muted/30", className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase text-muted-foreground">{title}</p>
-          <p className={cn("mt-2 truncate font-semibold tracking-normal text-card-foreground", emphasis ? "text-3xl" : "text-2xl")}>
+          <p className="text-xs font-medium text-muted-foreground">{title}</p>
+          <p className={cn("mt-2 break-words font-semibold tabular-nums tracking-normal text-card-foreground", emphasis ? "text-3xl" : "text-2xl")}>
             {value}
           </p>
         </div>

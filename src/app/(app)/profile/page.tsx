@@ -1,5 +1,6 @@
 import { ImportHistoryList } from "@/components/import-history-list";
 import { ProfileForm } from "@/components/profile-form";
+import { PageHeader } from "@/components/page-header";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { statementListSelect, statementDto } from "@/lib/statement-dto";
@@ -19,10 +20,7 @@ export default async function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Perfil</h1>
-        <p className="text-sm text-muted-foreground">Datos personales, contraseña y últimos extractos</p>
-      </header>
+      <PageHeader title="Perfil" description="Tu información personal y la seguridad de tu cuenta." />
       <ProfileForm user={session.user} />
       <ImportHistoryList imports={imports.map(statementDto)} />
     </div>

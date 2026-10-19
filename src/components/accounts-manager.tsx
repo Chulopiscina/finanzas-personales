@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { formatCurrency, formatDate } from "@/lib/format";
 
-type AccountType = "BANK" | "SAVINGS" | "CARD" | "CASH" | "INVESTMENT" | "DEBT" | "OTHER";
+type AccountType =
+  | "BANK"
+  | "SAVINGS"
+  | "CARD"
+  | "CASH"
+  | "INVESTMENT"
+  | "DEBT"
+  | "OTHER";
 
 type AccountRow = {
   id: string;
@@ -39,16 +46,26 @@ const accountTypeLabels: Record<AccountType, string> = {
   CASH: "Efectivo",
   INVESTMENT: "Inversión",
   DEBT: "Deuda",
-  OTHER: "Otro"
+  OTHER: "Otro",
 };
 
-const emptyForm: AccountForm = { name: "", type: "BANK", initialBalance: "0", currency: "EUR", color: "#14b8a6" };
+const emptyForm: AccountForm = {
+  name: "",
+  type: "BANK",
+  initialBalance: "0",
+  currency: "EUR",
+  color: "#14b8a6",
+};
 
 function money(value: number) {
   return formatCurrency(Number.isFinite(value) ? value : 0);
 }
 
-export function AccountsManager({ initialAccounts }: { initialAccounts: AccountRow[] }) {
+export function AccountsManager({
+  initialAccounts,
+}: {
+  initialAccounts: AccountRow[];
+}) {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [form, setForm] = useState<AccountForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,7 +77,10 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
     const response = await request("/api/accounts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, initialBalance: Number(form.initialBalance || 0) })
+      body: JSON.stringify({
+        ...form,
+        initialBalance: Number(form.initialBalance || 0),
+      }),
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -70,7 +90,12 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
     const initialBalance = Number(form.initialBalance || 0);
     setAccounts((current) => [
       ...current,
-      { ...payload.account, initialBalance, currentBalance: initialBalance, _count: { transactions: 0, imports: 0 } }
+      {
+        ...payload.account,
+        initialBalance,
+        currentBalance: initialBalance,
+        _count: { transactions: 0, imports: 0 },
+      },
     ]);
     setForm(emptyForm);
   }
@@ -83,7 +108,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
       type: account.type,
       initialBalance: String(account.initialBalance),
       currency: account.currency || "EUR",
-      color: account.color ?? "#14b8a6"
+      color: account.color ?? "#14b8a6",
     });
   }
 
@@ -93,7 +118,7 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
     const response = await request(`/api/accounts/${account.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...editForm, initialBalance: nextInitialBalance })
+      body: JSON.stringify({ ...editForm, initialBalance: nextInitialBalance }),
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -104,8 +129,8 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
       current.map((item) =>
         item.id === account.id
           ? { ...item, ...payload.account, initialBalance: nextInitialBalance }
-          : item
-      )
+          : item,
+      ),
     );
     setEditingId(null);
   }
@@ -115,137 +140,253 @@ export function AccountsManager({ initialAccounts }: { initialAccounts: AccountR
     const response = await request(`/api/accounts/${account.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isArchived: !account.isArchived })
+      body: JSON.stringify({ isArchived: !account.isArchived }),
     });
     const payload = await response.json();
     if (!response.ok) {
       setMessage(payload.error ?? "No se pudo actualizar la cuenta.");
       return;
     }
-    setAccounts((current) => current.map((item) => (item.id === account.id ? { ...item, ...payload.account } : item)));
+    setAccounts((current) =>
+      current.map((item) =>
+        item.id === account.id ? { ...item, ...payload.account } : item,
+      ),
+    );
     if (editingId === account.id) setEditingId(null);
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-card-foreground">Crear cuenta</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-[1.3fr_1fr_1fr_0.8fr_0.8fr_auto]">
-          <Input placeholder="Nombre" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-          <Select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as AccountType })}>
+    <div className="space-y-7">
+      <section
+        aria-label="Resumen de cuentas"
+        className="flex flex-wrap gap-6 border-b border-border pb-5 text-sm"
+      >
+        <p>
+          <strong className="text-lg font-semibold">
+            {accounts.filter((account) => !account.isArchived).length}
+          </strong>{" "}
+          <span className="text-muted-foreground">cuentas activas</span>
+        </p>
+        <p>
+          <strong className="text-lg font-semibold">
+            {accounts.filter((account) => account.isArchived).length}
+          </strong>{" "}
+          <span className="text-muted-foreground">archivadas</span>
+        </p>
+      </section>
+      <details className="border-b border-border pb-5">
+        <summary className="w-fit cursor-pointer text-sm font-medium text-accent">
+          Crear cuenta
+        </summary>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_90px_70px_auto]">
+          <Input
+            aria-label="Nombre de nueva cuenta"
+            placeholder="Nombre de la cuenta"
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+          />
+          <Select
+            aria-label="Tipo de nueva cuenta"
+            value={form.type}
+            onChange={(event) =>
+              setForm({ ...form, type: event.target.value as AccountType })
+            }
+          >
             {Object.entries(accountTypeLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+              <option key={value} value={value}>
+                {label}
+              </option>
             ))}
           </Select>
-          <Input type="number" step="0.01" value={form.initialBalance} onChange={(event) => setForm({ ...form, initialBalance: event.target.value })} aria-label="Saldo inicial" />
-          <Input value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} aria-label="Moneda" maxLength={3} />
-          <Input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} aria-label="Color" />
-          <Button type="button" onClick={() => void createAccount()}>
-            <Plus className="h-4 w-4" /> Crear
+          <Input
+            aria-label="Saldo inicial de nueva cuenta"
+            type="number"
+            step="0.01"
+            value={form.initialBalance}
+            onChange={(event) =>
+              setForm({ ...form, initialBalance: event.target.value })
+            }
+          />
+          <Input
+            aria-label="Moneda de nueva cuenta"
+            value={form.currency}
+            maxLength={3}
+            onChange={(event) =>
+              setForm({ ...form, currency: event.target.value.toUpperCase() })
+            }
+          />
+          <Input
+            aria-label="Color de nueva cuenta"
+            type="color"
+            value={form.color}
+            onChange={(event) =>
+              setForm({ ...form, color: event.target.value })
+            }
+          />
+          <Button onClick={() => void createAccount()}>
+            <Plus className="h-4 w-4" />
+            Crear cuenta
           </Button>
         </div>
-        {message ? <p className="mt-3 text-sm text-danger">{message}</p> : null}
-      </section>
-
-      <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
-        <div className="border-b border-border p-5">
-          <h2 className="text-base font-semibold text-card-foreground">Tus cuentas</h2>
-          <p className="text-sm text-muted-foreground">Las cuentas archivadas se ocultan de los selectores principales.</p>
+      </details>
+      {message ? <p role="alert" className="border-l-2 border-danger pl-3 text-sm text-danger">{message}</p> : null}
+      <section aria-label="Tus cuentas">
+        <h2 className="mb-4 text-base font-semibold">Tus cuentas</h2>
+        {!accounts.length ? (
+          <p className="empty-state">
+            Todavía no tienes cuentas. Crea la primera para organizar tus
+            movimientos.
+          </p>
+        ) : null}
+        <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
+          {accounts.map((account) => (
+            <article
+              key={account.id}
+              className={
+                "surface min-w-0 p-5 sm:p-6 " +
+                (account.isArchived ? "opacity-70" : "")
+              }
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="h-8 w-1 shrink-0 rounded-full"
+                  style={{ background: account.color ?? "#65d9aa" }}
+                />
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-base font-semibold">
+                    {account.name}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {accountTypeLabels[account.type]} · {account.currency}
+                  </p>
+                </div>
+                <span className="rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                  {account.isArchived ? "Archivada" : "Activa"}
+                </span>
+              </div>
+              <p className="mt-6 text-xs text-muted-foreground">Saldo actual</p>
+              <p className="mt-2 break-words text-3xl font-semibold tabular-nums">
+                {money(account.currentBalance)}
+              </p>
+              <dl className="mt-5 grid grid-cols-2 gap-3 border-y border-border py-4 text-xs">
+                <div>
+                  <dt className="text-muted-foreground">Saldo inicial</dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {money(account.initialBalance)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Movimientos</dt>
+                  <dd className="mt-1 font-medium">
+                    {account._count.transactions}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 min-h-8 text-[11px] leading-relaxed text-muted-foreground">
+                {account.confirmedBalance == null
+                  ? "Calculado desde el saldo inicial y los movimientos."
+                  : `Saldo bancario: ${money(account.confirmedBalance)} · ${formatDate(account.confirmedAt)}`}
+              </p>
+              {editingId === account.id ? (
+                <div className="mt-4 grid gap-3">
+                  <Input
+                    aria-label="Nombre de la cuenta"
+                    value={editForm.name}
+                    onChange={(event) =>
+                      setEditForm({ ...editForm, name: event.target.value })
+                    }
+                  />
+                  <Select
+                    aria-label="Tipo de cuenta"
+                    value={editForm.type}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        type: event.target.value as AccountType,
+                      })
+                    }
+                  >
+                    {Object.entries(accountTypeLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    aria-label="Saldo inicial"
+                    type="number"
+                    step="0.01"
+                    value={editForm.initialBalance}
+                    onChange={(event) =>
+                      setEditForm({
+                        ...editForm,
+                        initialBalance: event.target.value,
+                      })
+                    }
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      aria-label="Moneda de la cuenta"
+                      value={editForm.currency}
+                      maxLength={3}
+                      onChange={(event) =>
+                        setEditForm({
+                          ...editForm,
+                          currency: event.target.value.toUpperCase(),
+                        })
+                      }
+                    />
+                    <Input
+                      aria-label="Color de la cuenta"
+                      type="color"
+                      value={editForm.color}
+                      onChange={(event) =>
+                        setEditForm({ ...editForm, color: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => void saveAccount(account)}>
+                      <Save className="h-4 w-4" />
+                      Guardar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-4 w-4" />
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => startEditing(account)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void toggleArchive(account)}
+                  >
+                    {account.isArchived ? (
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    ) : (
+                      <Archive className="h-3.5 w-3.5" />
+                    )}
+                    {account.isArchived ? "Reactivar" : "Archivar"}
+                  </Button>
+                </div>
+              )}
+            </article>
+          ))}
         </div>
-        {accounts.length === 0 ? (
-          <p className="p-5 text-sm text-muted-foreground">No hay cuentas todavía.</p>
-        ) : (
-          <>
-          <div className="movement-mobile space-y-3 p-4">
-            {accounts.map((account) => <article className="space-y-3 rounded-lg border border-border p-4" key={account.id}>
-              <div className="flex justify-between gap-3"><div><p className="font-medium">{account.name}</p><p className="text-xs text-muted-foreground">{accountTypeLabels[account.type]} · {account.isArchived ? "Archivada" : "Activa"}</p></div><strong className="text-right">{money(account.currentBalance)}</strong></div>
-              <p className="text-xs text-muted-foreground">Inicial: {money(account.initialBalance)} · {account._count.transactions} movimientos</p>
-              <p className="text-xs text-muted-foreground">{account.confirmedBalance == null ? "Saldo calculado desde el saldo inicial" : `Saldo bancario ${money(account.confirmedBalance)} · ${formatDate(account.confirmedAt)}`}</p>
-              {editingId === account.id ? <div className="grid gap-3"><Input aria-label="Nombre de la cuenta" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} /><Select aria-label="Tipo de cuenta" value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value as AccountType })}>{Object.entries(accountTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select><Input aria-label="Saldo inicial" type="number" step="0.01" value={editForm.initialBalance} onChange={(event) => setEditForm({ ...editForm, initialBalance: event.target.value })} /><Input aria-label="Color de la cuenta" type="color" value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} /><div className="flex gap-2"><Button size="sm" onClick={() => void saveAccount(account)}><Save className="h-4 w-4" />Guardar</Button><Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancelar</Button></div></div> : <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={() => startEditing(account)}><Pencil className="h-4 w-4" />Editar</Button><Button size="sm" variant="secondary" onClick={() => void toggleArchive(account)}>{account.isArchived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}{account.isArchived ? "Reactivar" : "Archivar"}</Button></div>}
-            </article>)}
-          </div>
-          <div className="movement-desktop overflow-x-auto">
-            <table className="w-full min-w-[980px] text-sm">
-              <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Cuenta</th>
-                  <th className="px-4 py-3 font-medium">Tipo</th>
-                  <th className="px-4 py-3 text-right font-medium">Saldo inicial</th>
-                  <th className="px-4 py-3 text-right font-medium">Saldo actual</th>
-                  <th className="px-4 py-3 text-right font-medium">Movimientos</th>
-                  <th className="px-4 py-3 text-right font-medium">Estado</th>
-                  <th className="px-4 py-3 text-right font-medium">Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => {
-                  const isEditing = editingId === account.id;
-                  return (
-                    <tr key={account.id} className="border-t border-border">
-                      <td className="px-4 py-3">
-                        {isEditing ? (
-                          <div className="grid gap-2 md:grid-cols-[1fr_76px_64px]">
-                            <Input value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
-                            <Input type="color" value={editForm.color} onChange={(event) => setEditForm({ ...editForm, color: event.target.value })} />
-                            <Input value={editForm.currency} onChange={(event) => setEditForm({ ...editForm, currency: event.target.value.toUpperCase() })} maxLength={3} />
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ background: account.color ?? "#94a3b8" }} />
-                            <span className="font-medium text-card-foreground">{account.name}</span>
-                            <span className="text-xs text-muted-foreground">{account.currency}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {isEditing ? (
-                          <Select value={editForm.type} onChange={(event) => setEditForm({ ...editForm, type: event.target.value as AccountType })}>
-                            {Object.entries(accountTypeLabels).map(([value, label]) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </Select>
-                        ) : accountTypeLabels[account.type]}
-                      </td>
-                      <td className="px-4 py-3 text-right text-muted-foreground">
-                        {isEditing ? (
-                          <Input className="ml-auto max-w-32 text-right" type="number" step="0.01" value={editForm.initialBalance} onChange={(event) => setEditForm({ ...editForm, initialBalance: event.target.value })} />
-                        ) : money(account.initialBalance)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium text-card-foreground">{money(account.currentBalance)}<p className="mt-1 text-xs font-normal text-muted-foreground">{account.confirmedBalance == null ? "Calculado desde saldo inicial" : `Banco: ${money(account.confirmedBalance)} · ${formatDate(account.confirmedAt)}`}</p></td>
-                      <td className="px-4 py-3 text-right text-muted-foreground">{account._count.transactions}</td>
-                      <td className="px-4 py-3 text-right text-muted-foreground">{account.isArchived ? "Archivada" : "Activa"}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          {isEditing ? (
-                            <>
-                              <Button type="button" variant="secondary" size="sm" onClick={() => void saveAccount(account)}>
-                                <Save className="h-4 w-4" /> Guardar
-                              </Button>
-                              <Button type="button" variant="ghost" size="sm" onClick={() => setEditingId(null)}>
-                                <X className="h-4 w-4" /> Cancelar
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button type="button" variant="secondary" size="sm" onClick={() => startEditing(account)}>
-                                <Pencil className="h-4 w-4" /> Editar
-                              </Button>
-                              <Button type="button" variant="secondary" size="sm" onClick={() => void toggleArchive(account)}>
-                                {account.isArchived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-                                {account.isArchived ? "Reactivar" : "Archivar"}
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          </>
-        )}
       </section>
     </div>
   );

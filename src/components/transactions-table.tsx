@@ -488,38 +488,38 @@ export function TransactionsTable({
   }
 
   return (
-    <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
+    <section className="movement-layout min-w-0">
       <div className="space-y-3 border-b border-border p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-card-foreground">Movimientos</h2>
-            <p className="text-sm text-muted-foreground">{pagination.total} transacciones - pagina {pagination.page} de {pagination.totalPages}{isPending ? " - actualizando..." : ""}</p>
+            <p className="text-xs text-muted-foreground">{pagination.total} transacciones · página {pagination.page} de {pagination.totalPages}{isPending ? " · actualizando..." : ""}</p>
           </div>
           <label className="relative w-full sm:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar" className="pl-9" />
           </label>
         </div>
-        <div className="grid gap-3 md:grid-cols-5">
-          <Select value={filters.accountId} onChange={(event) => setFilters({ ...filters, accountId: event.target.value })}>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+          <Select aria-label="Filtrar por cuenta" value={filters.accountId} onChange={(event) => setFilters({ ...filters, accountId: event.target.value })}>
             <option value="">Todas las cuentas</option>
             {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
           </Select>
-          <Select value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })}>
+          <Select aria-label="Filtrar por categoría" value={filters.categoryId} onChange={(event) => setFilters({ ...filters, categoryId: event.target.value })}>
             <option value="">Todas las categorías</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
           </Select>
-          <Select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
+          <Select aria-label="Filtrar por tipo" value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
             <option value="">Todos los tipos</option>
             <option value="INCOME">Ingreso</option>
             <option value="EXPENSE">Gasto</option>
             <option value="TRANSFER">Transferencia</option>
           </Select>
-          <Select value={filters.importId} onChange={(event) => setFilters({ ...filters, importId: event.target.value })}>
+          <Select aria-label="Filtrar por extracto" value={filters.importId} onChange={(event) => setFilters({ ...filters, importId: event.target.value })}>
             <option value="">Todos los extractos</option>
             {imports.map((item) => <option key={item.id} value={item.id}>{item.fileName}</option>)}
           </Select>
-          <Select value={filters.planningGoalId} onChange={(event) => setFilters({ ...filters, planningGoalId: event.target.value })}>
+          <Select aria-label="Filtrar por objetivo" value={filters.planningGoalId} onChange={(event) => setFilters({ ...filters, planningGoalId: event.target.value })}>
             <option value="">Todos los objetivos</option>
             <option value="__none">Sin objetivo</option>
             <option value="__any">Con objetivo</option>
@@ -530,7 +530,7 @@ export function TransactionsTable({
 
       {mutationError ? <p className="p-4 text-sm text-danger" role="alert">{mutationError}</p> : null}
       {candidateId && (candidateLoading || candidateError) ? <p className="px-4 py-2 text-sm text-muted-foreground" role="status">{candidateError || "Buscando movimientos..."}</p> : null}
-      <div className="movement-desktop overflow-x-auto">
+      <div className="movement-desktop surface mt-4 overflow-x-auto">
         <table className="w-full table-fixed border-collapse text-xs">
           <colgroup>
             <col className="w-[76px]" />
@@ -567,7 +567,7 @@ export function TransactionsTable({
                 <tr key={tx.id} className="border-t border-border align-middle transition hover:bg-muted/30">
                   <td className="whitespace-nowrap px-2 py-2 text-muted-foreground">{formatDate(tx.date)}</td>
                   <td className="min-w-0 px-2 py-2">
-                    <Input defaultValue={conceptText} title={conceptText + " - " + sourceText} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-8 w-full truncate text-xs" />
+                    <Input aria-label="Editar concepto" defaultValue={conceptText} title={conceptText + " - " + sourceText} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="h-9 w-full truncate border-transparent bg-transparent text-xs hover:border-border" />
                   </td>
                   <td className="px-2 py-2">
                     <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-8 w-full text-xs">
@@ -609,7 +609,7 @@ export function TransactionsTable({
         </table>
       </div>
 
-      <div className="movement-mobile space-y-3 p-4">
+      <div className="movement-mobile space-y-3 pt-4">
         {filtered.map((tx) => {
           const typeBadge = movementType(tx);
           const sourceText = tx.importHistory ? "Importado desde " + tx.importHistory.fileName : "Manual";
@@ -618,7 +618,7 @@ export function TransactionsTable({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">{formatDate(tx.date)} - {tx.account?.name ?? "Cuenta"}</p>
-                  <Input defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="mt-2 h-9" />
+                  <Input aria-label="Editar concepto" defaultValue={tx.cleanDescription ?? tx.concept} onBlur={(event) => void updateCleanDescription(tx.id, event.target.value)} className="mt-2 h-9 border-transparent bg-transparent px-0 font-medium hover:border-border focus:px-2" />
                   <p className="mt-1 truncate text-xs text-muted-foreground">Original: {tx.concept}</p>
                 </div>
                 <div className="text-right">
@@ -627,16 +627,16 @@ export function TransactionsTable({
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Select value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9">
+              <details className="mt-3"><summary className="w-fit cursor-pointer text-xs text-muted-foreground hover:text-accent">Editar cuenta y categoría</summary><div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <Select aria-label="Cuenta del movimiento" value={tx.accountId} onChange={(event) => void updateAccount(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-10">
                   {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
                 </Select>
-                <Select value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-9">
+                <Select aria-label="Categoría del movimiento" value={tx.categoryId ?? ""} onChange={(event) => updateCategory(tx.id, event.target.value)} disabled={savingId === tx.id} className="h-10">
                   <option value="">Sin categoría</option>
                   {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   <option value="__new">+ Nueva categoría</option>
                 </Select>
-              </div>
+              </div></details>
 
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Badge tone={typeBadge.tone}>{typeBadge.label}</Badge>

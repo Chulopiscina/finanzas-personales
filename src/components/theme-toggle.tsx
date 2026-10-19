@@ -19,8 +19,8 @@ export function ThemeToggle() {
   }
 
   return (
-    <Button type="button" variant="ghost" size="icon" onClick={toggle} title="Cambiar tema">
-      {dark ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+    <Button type="button" variant="ghost" size="icon" onClick={toggle} title={dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}>
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
   );
 }

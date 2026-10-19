@@ -1,5 +1,6 @@
 ﻿import { AccountsManager } from "@/components/accounts-manager";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
 import { getAccountBalances, ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
@@ -37,10 +38,7 @@ export default async function AccountsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Cuentas</h1>
-        <p className="text-sm text-muted-foreground">Gestiona bancos, ahorro, tarjetas, efectivo e inversión.</p>
-      </header>
+      <PageHeader title="Cuentas" description="Tus bancos, tarjetas y ahorro. Una visión clara de cada saldo." />
       <AccountsManager initialAccounts={preparedAccounts} />
     </div>
   );

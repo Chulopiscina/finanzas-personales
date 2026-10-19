@@ -1,5 +1,6 @@
 import { TransactionType } from "@prisma/client";
 import { TransactionsTable } from "@/components/transactions-table";
+import { PageHeader } from "@/components/page-header";
 import { getAuthorizedUserId, getSessionUser } from "@/lib/auth";
 import { ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
@@ -103,10 +104,7 @@ export default async function MovementsPage({ searchParams }: Props) {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Movimientos</h1>
-        <p className="text-sm text-muted-foreground">Clasificaci&oacute;n, cuenta, origen, objetivos y edici&oacute;n manual</p>
-      </header>
+      <PageHeader title="Movimientos" description="Cada movimiento, en su sitio. Filtra, clasifica y consulta su origen." />
       <TransactionsTable
         accounts={accounts.map((account) => ({ id: account.id, name: account.name, isArchived: account.isArchived }))}
         categories={categories}

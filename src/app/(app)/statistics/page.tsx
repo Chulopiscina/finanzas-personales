@@ -1,5 +1,6 @@
 import { DashboardChartsLazy } from "@/components/dashboard-charts-lazy";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
 import { getDashboardData } from "@/lib/finance";
 
 export default async function StatisticsPage() {
@@ -12,10 +13,7 @@ export default async function StatisticsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Estadísticas</h1>
-        <p className="text-sm text-muted-foreground">Evolución, categorías y comparativa mensual</p>
-      </header>
+      <PageHeader title="Estadísticas" description="Entiende tus hábitos y cómo evoluciona tu dinero." />
       <DashboardChartsLazy categories={data.charts.categories} monthly={data.charts.monthly} comparison={data.charts.comparison} />
     </div>
   );

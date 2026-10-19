@@ -86,7 +86,7 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
     );
   }
   return (
-    <section className="movement-layout rounded-lg border border-border bg-card shadow-sm">
+    <section className="movement-layout">
       <div className="flex items-center gap-3 border-b border-border p-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-accent">
           <FileText className="h-5 w-5" aria-hidden="true" />
@@ -103,10 +103,10 @@ export function ImportHistoryList({ imports }: { imports: ImportHistoryRow[] }) 
         <p className="p-5 text-sm text-muted-foreground">Todavía no has subido ningún extracto.</p>
       ) : (
         <>
-        <div className="movement-mobile space-y-3 p-4">
+        <div className="movement-mobile grid gap-4 pt-5 sm:grid-cols-2">
           {items.map((item) => <article className="space-y-3 rounded-lg border border-border p-4" key={item.id}><div><p className="break-words font-medium">{item.fileName}</p><p className="mt-1 text-xs text-muted-foreground">{item.account.name} · {formatDate(item.createdAt)} · {statusLabel(item.status)}</p></div><div className="grid grid-cols-2 gap-2 text-sm"><span>Movimientos: {item.insertedRows} / {item.rowCount}</span><span className="text-right">{formatBytes(item.fileSize)}</span><span className="text-success">Ingresos {formatCurrency(toNumber(item.incomeTotal))}</span><span className="text-right text-danger">Gastos {formatCurrency(toNumber(item.expenseTotal))}</span></div>{renderActions(item)}</article>)}
         </div>
-        <div className="movement-desktop overflow-x-auto">
+        <div className="movement-desktop surface mt-5 overflow-x-auto">
           <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase text-muted-foreground">
               <tr>

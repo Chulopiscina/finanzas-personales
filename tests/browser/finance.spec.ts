@@ -115,6 +115,9 @@ test("planificación conserva creación y edición verificadas tras guardar", as
   await expect(page.getByRole("heading", { name: /Hola Auditoría/ })).toBeVisible();
   if (info.project.name === "mobile") await page.getByRole("button", { name: "Abrir menú" }).click();
   await page.getByRole("link", { name: "Planificación", exact: true }).click();
+  const creation = page.locator("details").filter({ has: page.locator("summary").filter({ hasText: "Crear objetivo" }) });
+  await expect(creation).toBeVisible();
+  if ((await creation.getAttribute("open")) === null) await creation.locator("summary").click();
   const name = "Objetivo navegador " + info.project.name;
   await page.getByPlaceholder("Nombre del objetivo").fill(name);
   await page.getByLabel("Importe objetivo").fill("100");

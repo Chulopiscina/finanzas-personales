@@ -1,5 +1,7 @@
 import { PlanningManager } from "@/components/planning-manager";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
+import { PlanningNavigation } from "@/components/planning-navigation";
 import { ensureDefaultAccount, toNumber } from "@/lib/finance";
 import { getPlanningGoalProgress, planningRelations } from "@/lib/planning";
 import { prisma } from "@/lib/prisma";
@@ -63,10 +65,8 @@ export default async function PlanningPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Planificación</h1>
-        <p className="text-sm text-muted-foreground">Crea objetivos personalizados y decide cuáles aparecen en el dashboard.</p>
-      </header>
+      <PageHeader title="Planificación" description="Dale un propósito a tu dinero y sigue tus objetivos." />
+      <PlanningNavigation />
       <PlanningManager initialGoals={preparedGoals} accounts={accounts} categories={categories} />
     </div>
   );

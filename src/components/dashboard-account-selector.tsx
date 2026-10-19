@@ -23,8 +23,8 @@ export function DashboardAccountSelector({ accounts, selectedAccountId }: { acco
   }
 
   return (
-    <label className="group relative flex h-12 min-w-0 items-center gap-3 rounded-full border border-border bg-card px-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)] transition duration-200 hover:border-accent/30 hover:shadow-[0_12px_28px_rgba(15,23,42,0.07)] sm:min-w-64">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
+    <label className="finance-select">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
         <Landmark className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="pointer-events-none min-w-0 flex-1 truncate text-sm font-medium text-foreground">
@@ -38,7 +38,6 @@ export function DashboardAccountSelector({ accounts, selectedAccountId }: { acco
             {account.id === selectedAccountId ? "✓ " : ""}{account.name}{account.isArchived ? " (archivada)" : ""}
           </option>
         ))}
-        <option disabled>Añadir cuenta</option>
       </Select>
     </label>
   );

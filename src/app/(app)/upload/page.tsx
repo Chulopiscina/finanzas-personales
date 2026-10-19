@@ -1,5 +1,6 @@
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
 import { ensureDefaultAccount } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
@@ -18,10 +19,7 @@ export default async function UploadPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Subir CSV/PDF</h1>
-        <p className="text-sm text-muted-foreground">Importación BBVA con cuenta y detección de duplicados</p>
-      </header>
+      <PageHeader title="Subir CSV/PDF" description="Analiza tu extracto, revisa los datos y confirma antes de importar." />
       <UploadDropzone accounts={accounts} />
     </div>
   );

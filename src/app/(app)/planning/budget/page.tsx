@@ -1,5 +1,7 @@
 import { BudgetManager } from "@/components/budget-manager";
 import { getSessionUser } from "@/lib/auth";
+import { PageHeader } from "@/components/page-header";
+import { PlanningNavigation } from "@/components/planning-navigation";
 import { buildBudgetSummary, toNumber } from "@/lib/finance";
 import { prisma } from "@/lib/prisma";
 
@@ -48,10 +50,8 @@ export default async function BudgetPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Presupuesto mensual</h1>
-        <p className="text-sm text-muted-foreground">Crea límites por mes, cuenta y bloque de gasto. No crea movimientos reales.</p>
-      </header>
+      <PageHeader title="Presupuesto mensual" description="Decide cuánto gastar y sigue tu progreso mes a mes." />
+      <PlanningNavigation />
       <BudgetManager initialBudgets={rows} accounts={accounts} categories={categories} />
     </div>
   );
