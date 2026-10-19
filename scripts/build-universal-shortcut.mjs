@@ -9,14 +9,19 @@ const compiler = resolve(process.argv[2]);
 const compilerCommit = "bcc0095754e2cc0baaeb4d93dae172b8153b4716";
 const revision = spawnSync("git", ["-C", dirname(compiler), "rev-parse", "HEAD"], { encoding: "utf8", windowsHide: true });
 if (revision.status !== 0 || revision.stdout.trim() !== compilerCommit) throw new Error("Use the executable built inside the pinned Cherri checkout");
-const result = spawnSync(compiler, ["shortcuts/FinanzasBancarias.cherri", "--skip-sign", "--derive-uuids", "--no-ansi"], { stdio: "inherit", windowsHide: true });
+// This pinned compiler derives the same ID for every anonymous conditional.
+// Random native UUIDs preserve scope; verify them before publishing any artifact.
+const result = spawnSync(compiler, ["shortcuts/FinanzasBancarias.cherri", "--skip-sign", "--no-ansi"], { stdio: "inherit", windowsHide: true });
 if (result.error) throw result.error;
 if (result.status !== 0) throw new Error("Native compilation failed");
+const checked = spawnSync(process.env.PYTHON ?? (process.platform === "win32" ? "python" : "python3"), ["scripts/verify-shortcut.py", "shortcuts/Finanzas Bancarias_unsigned.shortcut"], { stdio: "inherit", windowsHide: true });
+if (checked.error) throw checked.error;
+if (checked.status !== 0) throw new Error("Native structure validation failed; no public file updated");
 const source = readFileSync("shortcuts/FinanzasBancarias.cherri");
 const file = readFileSync("shortcuts/Finanzas Bancarias_unsigned.shortcut");
 const xml = file.toString("utf8");
 if (!xml.includes("<plist") || /fp_[A-Za-z0-9_-]{43}|pair_[A-Za-z0-9_-]{43}/.test(xml)) throw new Error("Unsafe/incomplete native file");
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 copyFileSync("shortcuts/Finanzas Bancarias_unsigned.shortcut", "public/shortcuts/Finanzas-Bancarias_unsigned.shortcut");
-writeFileSync("shortcuts/universal-build.json", JSON.stringify({ compiler: "Cherri", compilerCommit, sourceSha256: hash(source), compiledSha256: hash(file), actionCount: (xml.match(/<key>WFWorkflowActionIdentifier<\/key>/g) ?? []).length, appleSigned: false }, null, 2) + "\n");
+writeFileSync("shortcuts/universal-build.json", JSON.stringify({ compiler: "Cherri", compilerCommit, uuidStrategy: "random-unique", sourceSha256: hash(source), compiledSha256: hash(file), actionCount: (xml.match(/<key>WFWorkflowActionIdentifier<\/key>/g) ?? []).length, appleSigned: false }, null, 2) + "\n");
 console.log("Unsigned universal file generated; source/artifact SHA-256 recorded. Apple signature still required.");

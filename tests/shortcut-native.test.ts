@@ -80,14 +80,21 @@ describe("atajo universal definitivo para firma", () => {
   it("firma un plist binario con extensión nativa y no publica salidas fallidas", () => {
     const script = readFileSync("scripts/sign-universal-shortcut.sh", "utf8");
     expect(script).toContain('binary="$work/Finanzas-Bancarias_unsigned.shortcut"');
-    expect(script).toContain('signed="$work/Finanzas Bancarias.shortcut"');
+    expect(script).toContain('signed="$work/$label-$attempt.shortcut"');
     expect(script).toContain('/usr/bin/plutil -convert binary1 -o "$binary" "$input"');
-    expect(script).toContain('if ! /usr/bin/shortcuts sign --mode anyone --input "$binary" --output "$signed"');
-    expect(script).toContain('"bplist00"');
-    expect(script).toContain('"AEA1"');
-    expect(script.indexOf('"AEA1"')).toBeLessThan(script.indexOf('cat "$signed" > "$output"'));
+    expect(script).toContain('/usr/bin/shortcuts sign --mode "$mode" --input "$source" --output "$signed"');
+    expect(script).toContain('bplist00');
+    expect(script).toContain('AEA1');
+    expect(script.indexOf('= AEA1')).toBeLessThan(script.indexOf('cat "$verified_file" > "$output"'));
     expect(script).toContain('set -o noclobber');
     expect(script).toContain('trap cleanup EXIT');
     expect(script).not.toContain("mktemp -t finanzas-universal");
+    expect(script).toContain('sign_checked MINIMO "$minimal" 2');
+    expect(script).toContain('sign_checked UNIVERSAL_XML "$xml" 1');
+    expect(script).toContain('FALLO_COMUN_RED_SERVICIO_SESION');
+    expect(script).toContain('FALLO_ESPECIFICO_UNIVERSAL');
+    expect(script).toContain('"${1:-}" = "--personal"');
+    expect(readFileSync("scripts/build-universal-shortcut.mjs", "utf8")).not.toContain('"--derive-uuids"');
+    expect(readFileSync(".github/workflows/bbva-shortcut.yml", "utf8")).not.toContain('--derive-uuids');
   });
 });

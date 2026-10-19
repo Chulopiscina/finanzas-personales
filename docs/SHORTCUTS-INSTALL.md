@@ -14,16 +14,16 @@ El compilador y los SHA-256 de fuente/archivo se registran en `shortcuts/univers
 
 ## Acción exacta en un Mac
 
-1. Llevar al Mac el nuevo paquete `Finanzas-Bancarias-para-firmar-corregido.zip` de `outputs/` y descomprimirlo en Descargas. Sustituye al ZIP anterior: contiene el mismo workflow universal, ahora como **plist binario real** (`bplist00`), script con finales LF, instrucciones y sumas SHA-256. No contiene tokens. El ZIP original se conserva sin modificar.
+1. Llevar al Mac el nuevo paquete `Finanzas-Bancarias-firma-definitiva.zip` de `outputs/` y descomprimirlo en Descargas. Sustituye a los ZIP anteriores, que se conservan: incluye el universal con UUID corregidos, XML y binario, control mínimo, diagnóstico automático, instrucciones y hashes. No contiene tokens. [Diagnóstico 500/502 y límites](SHORTCUTS-SIGNING.md).
 2. En un Mac con Atajos y sesión iCloud, abrir Terminal y ejecutar:
 
 ```bash
-bash "$HOME/Downloads/Finanzas-Bancarias-para-firmar-corregido/firmar-en-Mac.sh"
+bash "$HOME/Downloads/Finanzas-Bancarias-firma-definitiva/firmar-en-Mac.sh"
 ```
 
 El script valida el plist, convierte una copia temporal a binario y ejecuta **únicamente el comando oficial de firma de Apple**. No instala herramientas, no pide contraseñas bancarias, no modifica el original ni sobrescribe una salida existente. Apple recibe una copia del código genérico; no datos financieros. Si falta sesión iCloud, detenerse y abrir la sesión personalmente, sin facilitar credenciales al agente.
 
-La copia temporal también mantiene la extensión `.shortcut`; el script anterior la perdía. Se comprueba la cabecera binaria antes de firmar y solo se entrega una salida no vacía con cabecera AEA1 si el comando de Apple termina correctamente. Esa cabecera por sí sola no verifica criptográficamente la firma. **La corrección de formato y las 111 acciones se han verificado en Windows; la firma, importación y ejecución de este paquete siguen pendientes de prueba real en macOS/iPhone.** No se afirma que el mensaje de formato del Mac tenga una única causa demostrada.
+La copia temporal mantiene la extensión `.shortcut`. Se verifican XML, binario y hashes, se compara la firma del universal con un control Texto y se entrega un informe sin credenciales. Solo se entrega una salida no vacía con cabecera AEA1 si el comando Apple termina correctamente; no es validación criptográfica independiente. **Corregidos los UUID repetidos en 13 bloques sin quitar ninguna de las 111 acciones; firma, importación y ejecución de este paquete pendientes de prueba real en macOS/iPhone.** No se atribuyen los errores 500/502 a una causa única sin el resultado del Mac.
 
 3. Entregar el resultado **Finanzas Bancarias.shortcut** al mantenedor. No hace falta construir acciones, copiar tokens ni crear un enlace iCloud. La firma y la prueba física son cosas distintas.
 
@@ -71,7 +71,7 @@ Todo entra en **BankNotification**, nunca en Transaction. No cambia dashboard, p
 
 ## Pruebas y fuentes
 
-Regresión del paquete (Python 3, solo biblioteca estándar): `python3 -m unittest discover -s tests -p shortcut_package_test.py`. Regenerar el ZIP conservando el original: `python3 scripts/package-shortcut-for-mac.py`; no sobrescribe un paquete corregido existente. Comprobar el binario: `python3 scripts/verify-shortcut.py outputs/Finanzas-Bancarias-para-firmar-corregido/Finanzas-Bancarias_unsigned.shortcut`. Estas pruebas no simulan ni sustituyen la firma de Apple.
+Regresión del paquete y simulaciones offline del shell (Python 3, biblioteca estándar): `python3 -m unittest discover -s tests -p 'shortcut_*_test.py'`. Regenerar el ZIP: `python3 scripts/package-shortcut-for-mac.py`; no sobrescribe paquetes anteriores ni un definitivo existente. Comprobar el binario: `python3 scripts/verify-shortcut.py outputs/Finanzas-Bancarias-firma-definitiva/Finanzas-Bancarias_unsigned.shortcut`. Las simulaciones no sustituyen la firma de Apple.
 
 `npm run test:system` crea una base local nueva y prueba las 17 migraciones, cuentas ajenas, rutas/cookies/CSRF, legacy BBVA, varios bancos, mensajes en tres idiomas, duplicados, cambios de vínculo, retenciones, devoluciones, asignación manual y conciliación. Playwright usa escritorio y 390 px, no un iPhone físico. Los mensajes de banco y enlaces iCloud de ceros son fixtures, no ejemplos recibidos ni instaladores reales.
 

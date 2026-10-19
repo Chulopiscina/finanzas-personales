@@ -3,8 +3,9 @@ import plistlib
 import re
 import sys
 from pathlib import Path
+from shortcut_structure import validate_workflow
 
-workflow = plistlib.loads(Path(sys.argv[1]).read_bytes())
+workflow, report = validate_workflow(Path(sys.argv[1]).read_bytes())
 actions = workflow["WFWorkflowActions"]
 assert len(actions) > 30, "Incomplete workflow"
 ids = [a["WFWorkflowActionIdentifier"] for a in actions]
@@ -25,3 +26,4 @@ for action in actions:
     if action["WFWorkflowActionIdentifier"].endswith("storedcontent"):
         assert not p.get("WFStoredContentGlobalValue"), "Credentials must not be global"
 print(f"Native workflow inspected: {len(actions)} actions, no embedded credentials")
+print(f"Unique control blocks: {report['controlBlockCount']}; references and UTF-16 token ranges checked")

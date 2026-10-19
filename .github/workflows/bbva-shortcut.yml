@@ -6,6 +6,8 @@ on:
     paths:
       - shortcuts/FinanzasBancarias.cherri
       - scripts/verify-shortcut.py
+      - scripts/shortcut_structure.py
+      - scripts/build-universal-shortcut.mjs
       - .github/workflows/bbva-shortcut.yml
   workflow_dispatch:
 
@@ -39,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           cp shortcuts/FinanzasBancarias.cherri "$RUNNER_TEMP/FinanzasBancarias.cherri"
-          "$RUNNER_TEMP/cherri-compiler" "$RUNNER_TEMP/FinanzasBancarias.cherri" --skip-sign --derive-uuids
+          "$RUNNER_TEMP/cherri-compiler" "$RUNNER_TEMP/FinanzasBancarias.cherri" --skip-sign
           python3 scripts/verify-shortcut.py "$RUNNER_TEMP/Finanzas Bancarias_unsigned.shortcut"
           plutil -convert binary1 "$RUNNER_TEMP/Finanzas Bancarias_unsigned.shortcut"
           mkdir -p "$RUNNER_TEMP/signed"

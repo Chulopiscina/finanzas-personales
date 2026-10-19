@@ -3,12 +3,15 @@ import hashlib
 import importlib.util
 import plistlib
 import stat
+import sys
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from shortcut_structure import validate_workflow
 spec = importlib.util.spec_from_file_location(
     "shortcut_package", ROOT / "scripts/package-shortcut-for-mac.py"
 )
@@ -59,11 +62,15 @@ class ShortcutPackageTest(unittest.TestCase):
         packager.package(source, output)
         self.assertEqual(source.read_bytes(), before)
         with zipfile.ZipFile(output / (packager.FOLDER + ".zip")) as archive:
-            self.assertEqual(len(archive.infolist()), 4)
+            self.assertEqual(len(archive.infolist()), 8)
             prefix = packager.FOLDER + "/"
             binary = archive.read(prefix + packager.NAME)
             self.assertEqual(binary[:8], b"bplist00")
             self.assertEqual(plistlib.loads(binary), plistlib.loads(self.original))
+            self.assertEqual(plistlib.loads(archive.read(prefix + "Finanzas-Bancarias_unsigned.plist")), plistlib.loads(binary))
+            minimal, report = validate_workflow(archive.read(prefix + "Diagnostico-Minimo_unsigned.shortcut"))
+            self.assertEqual(report["actionCount"], 1)
+            self.assertEqual(minimal["WFWorkflowActions"][0]["WFWorkflowActionIdentifier"], "is.workflow.actions.gettext")
             script = archive.read(prefix + "firmar-en-Mac.sh")
             self.assertTrue(script.startswith(b"#!/bin/bash\n"))
             self.assertNotIn(b"\r", script)
@@ -91,6 +98,40 @@ class ShortcutPackageTest(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             packager.package(source, output)
         self.assertEqual((output / (packager.FOLDER + ".zip")).read_bytes(), original_zip)
+
+    def test_validates_unique_blocks_outputs_references_and_tokens(self):
+        import copy
+        workflow, report = validate_workflow(self.original)
+        self.assertEqual(report["controlBlockCount"], 13)
+        self.assertGreater(report["uniqueOutputCount"], 13)
+        mutations = []
+        duplicate = copy.deepcopy(workflow)
+        blocks = [a["WFWorkflowActionParameters"] for a in duplicate["WFWorkflowActions"] if a.get("WFWorkflowActionParameters", {}).get("WFControlFlowMode") == 0]
+        blocks[1]["GroupingIdentifier"] = blocks[0]["GroupingIdentifier"]
+        mutations.append(duplicate)
+        duplicate = copy.deepcopy(workflow)
+        outputs = [a["WFWorkflowActionParameters"] for a in duplicate["WFWorkflowActions"] if "UUID" in a.get("WFWorkflowActionParameters", {})]
+        outputs[1]["UUID"] = outputs[0]["UUID"]
+        mutations.append(duplicate)
+        duplicate = copy.deepcopy(workflow)
+        duplicate["WFWorkflowActions"][0]["WFWorkflowActionParameters"]["input"] = {"OutputUUID": "missing"}
+        mutations.append(duplicate)
+        duplicate = copy.deepcopy(workflow)
+        duplicate["WFWorkflowActions"][0]["WFWorkflowActionParameters"]["input"] = {"WFSerializationType": "WFTextTokenString", "Value": {"string": "abc", "attachmentsByRange": {"{0, 1}": {}}}}
+        mutations.append(duplicate)
+        for mutated in mutations:
+            with self.assertRaises(ValueError):
+                validate_workflow(plistlib.dumps(mutated))
+
+    def test_rejects_unclosed_controls_and_existing_credentials(self):
+        workflow = plistlib.loads(self.original)
+        workflow["WFWorkflowActions"].pop(-2)
+        with self.assertRaises(ValueError):
+            validate_workflow(plistlib.dumps(workflow))
+        workflow = plistlib.loads(self.original)
+        workflow["secret"] = "fp_" + "a" * 43
+        with self.assertRaises(ValueError):
+            validate_workflow(plistlib.dumps(workflow))
 
 
 if __name__ == "__main__":
