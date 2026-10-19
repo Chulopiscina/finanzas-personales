@@ -77,4 +77,17 @@ describe("atajo universal definitivo para firma", () => {
     } else expect(release.sha256).toBeNull();
     expect(readFileSync(".github/workflows/bbva-shortcut.yml", "utf8")).toContain("shortcuts/FinanzasBancarias.cherri");
   });
+  it("firma un plist binario con extensión nativa y no publica salidas fallidas", () => {
+    const script = readFileSync("scripts/sign-universal-shortcut.sh", "utf8");
+    expect(script).toContain('binary="$work/Finanzas-Bancarias_unsigned.shortcut"');
+    expect(script).toContain('signed="$work/Finanzas Bancarias.shortcut"');
+    expect(script).toContain('/usr/bin/plutil -convert binary1 -o "$binary" "$input"');
+    expect(script).toContain('if ! /usr/bin/shortcuts sign --mode anyone --input "$binary" --output "$signed"');
+    expect(script).toContain('"bplist00"');
+    expect(script).toContain('"AEA1"');
+    expect(script.indexOf('"AEA1"')).toBeLessThan(script.indexOf('cat "$signed" > "$output"'));
+    expect(script).toContain('set -o noclobber');
+    expect(script).toContain('trap cleanup EXIT');
+    expect(script).not.toContain("mktemp -t finanzas-universal");
+  });
 });

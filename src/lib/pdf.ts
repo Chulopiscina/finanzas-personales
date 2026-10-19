@@ -39,6 +39,20 @@ function normalizeLine(line: string) {
   return line.replace(/\u00a0/g, " ").replace(/[−–]/g, "-").replace(/\s+/g, " ").trim();
 }
 
+export function isBBVAPdfText(text: string) {
+  if (/\bBBVA\b|Banco Bilbao/i.test(text) && /saldo|concepto|importe/i.test(text)) return true;
+
+  // Some BBVA statements draw the logo instead of including extractable bank text.
+  // Require both BBVA's bank code and its statement/table layout, not just an IBAN.
+  const iban = text.match(/\bIBAN\s*:?\s*(ES\d{2}(?:\s*\d){20})(?!\d)/i)?.[1].replace(/\s/g, "");
+  const normalized = bankText(text);
+  return Boolean(iban && /^ES\d{2}0182/i.test(iban)
+    && /\bextracto mensual de cuentas personales\b/.test(normalized)
+    && /\bf oper\b/.test(normalized) && /\bf valor\b/.test(normalized)
+    && /\bconcepto\b/.test(normalized) && /\bimporte\b/.test(normalized) && /\bsaldo\b/.test(normalized)
+    && /^\s*\d{1,2}\/\d{1,2}\s+\d{1,2}\/\d{1,2}\b/m.test(text));
+}
+
 function normalizePdfText(text: string) {
   return text
     .replace(/\u00a0/g, " ")

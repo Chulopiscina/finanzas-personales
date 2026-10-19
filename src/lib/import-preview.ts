@@ -1,7 +1,7 @@
 import { InputError } from "@/lib/input-error";
 import { TransactionType } from "@prisma/client";
 import { parseBBVACsv, parseTradeRepublicCsv, type ParsedMovement } from "@/lib/csv";
-import { extractPdfText, parseBBVAPdfText, parseCaixaBankPdfText, parseINGPdfText } from "@/lib/pdf";
+import { extractPdfText, isBBVAPdfText, parseBBVAPdfText, parseCaixaBankPdfText, parseINGPdfText } from "@/lib/pdf";
 import { cents, sumMoney, addMoney } from "@/lib/money";
 import { parseSpanishAmount } from "@/lib/csv";
 import { cleanBankDescription } from "@/lib/bank-text";
@@ -49,10 +49,6 @@ function isIngPdf(text: string) {
   return /\bING BANK\b/i.test(text) && /Certificado de Movimientos/i.test(text);
 }
 
-function isBbvaPdf(text: string) {
-  return /\bBBVA\b|Banco Bilbao/i.test(text) && /saldo|concepto|importe/i.test(text);
-}
-
 function bankName(format: ImportBankFormat) {
   switch (format) {
     case "BBVA":
@@ -97,8 +93,10 @@ export function deserializePreviewMovement(movement: SerializedPreviewMovement):
 }
 
 export function extractDeclaredBalances(text: string) {
+  // A dashed leader is decoration, not the sign of the opening balance.
+  const balanceText = text.replace(/(saldo\s+(?:inicial|anterior))\s*(?:(?:-\s+){2,}|-{2,}\s+)/gi, "$1: ");
   const find = (pattern: RegExp, last = false) => {
-    const matches = [...text.matchAll(pattern)];
+    const matches = [...balanceText.matchAll(pattern)];
     const value = (last ? matches.at(-1) : matches[0])?.[1];
     const amount = value ? parseSpanishAmount(value) : NaN;
     return Number.isFinite(amount) ? amount : null;
@@ -176,7 +174,7 @@ async function parsePdf(buffer: Buffer, forcedFormat: ImportBankFormat) {
   if (isCaixaBankPdf(text)) {
     return { format: "CAIXABANK" as const, movements: parseCaixaBankPdfText(text), text };
   }
-  if (isBbvaPdf(text)) {
+  if (isBBVAPdfText(text)) {
     return { format: "BBVA" as const, movements: parseBBVAPdfText(text), text };
   }
 
