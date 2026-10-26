@@ -1,225 +1,100 @@
 "use client";
-import { request } from "@/lib/client-request";
 
-import {
-  Archive,
-  PauseCircle,
-  PlayCircle,
-  Plus,
-  Save,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useRef, useState } from "react";
+import { LoaderCircle, Plus, Save, X } from "lucide-react";
+import { RecurringPaymentList } from "@/components/recurring-payment-list";
+import { useDialogFocus } from "@/components/use-dialog-focus";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { request } from "@/lib/client-request";
+import { paymentFrequencyLabels, type CalendarPayment, type PaymentFrequency } from "@/lib/recurring-calendar";
 
-type Frequency = "MONTHLY" | "QUARTERLY" | "ANNUAL" | "ONCE" | "OTHER";
-type Status = "ACTIVE" | "PAUSED" | "CANCELED";
+type Status = CalendarPayment["status"];
 type AccountOption = { id: string; name: string };
 type CategoryOption = { id: string; name: string; color: string };
-
-type PaymentRow = {
-  id: string;
-  name: string;
-  amount: number;
-  nextChargeDate: string;
+type PaymentRow = CalendarPayment & {
   projectedDate: string | null;
   daysUntil: number | null;
-  frequency: Frequency;
   accountId: string;
-  accountName: string | null;
   categoryId: string;
-  categoryName: string | null;
   description: string;
-  status: Status;
 };
-
 type PaymentForm = {
   name: string;
   amount: string;
   nextChargeDate: string;
-  frequency: Frequency;
+  frequency: PaymentFrequency;
   accountId: string;
   categoryId: string;
   description: string;
   status: Status;
 };
-
-const frequencyLabels: Record<Frequency, string> = {
-  MONTHLY: "Mensual",
-  QUARTERLY: "Trimestral",
-  ANNUAL: "Anual",
-  ONCE: "Única vez",
-  OTHER: "Otra (fecha manual)",
+type SavedPayment = Omit<PaymentRow, "amount" | "accountName" | "categoryName" | "accountId" | "categoryId" | "description" | "projectedDate" | "daysUntil"> & {
+  amount: string | number;
+  accountId: string | null;
+  categoryId: string | null;
+  description: string | null;
+  account: AccountOption | null;
+  category: CategoryOption | null;
 };
-
-const statusLabels: Record<Status, string> = {
-  ACTIVE: "Activo",
-  PAUSED: "Pausado",
-  CANCELED: "Cancelado",
-};
-
+const statusLabels: Record<Status, string> = { ACTIVE: "Activo", PAUSED: "Pausado", CANCELED: "Cancelado" };
 const emptyForm: PaymentForm = {
-  name: "",
-  amount: "",
-  nextChargeDate: "",
-  frequency: "MONTHLY",
-  accountId: "",
-  categoryId: "",
-  description: "",
-  status: "ACTIVE",
+  name: "", amount: "", nextChargeDate: "", frequency: "MONTHLY", accountId: "", categoryId: "", description: "", status: "ACTIVE",
 };
 
-function dateInput(value: string) {
-  return value ? value.slice(0, 10) : "";
-}
-
-function toForm(payment: PaymentRow): PaymentForm {
-  return {
-    name: payment.name,
-    amount: String(payment.amount),
-    nextChargeDate: dateInput(payment.nextChargeDate),
-    frequency: payment.frequency,
-    accountId: payment.accountId,
-    categoryId: payment.categoryId,
-    description: payment.description,
-    status: payment.status,
-  };
-}
-
-function FormFields({
-  form,
-  setForm,
-  accounts,
-  categories,
-}: {
+function FormFields({ form, setForm, accounts, categories }: {
   form: PaymentForm;
   setForm: (form: PaymentForm) => void;
   accounts: AccountOption[];
   categories: CategoryOption[];
 }) {
-  return (
-    <div className="grid gap-3">
-      <div className="grid gap-3 md:grid-cols-[1.4fr_0.8fr_1fr_1fr]">
-        <Input
-          placeholder="Nombre"
-          value={form.name}
-          onChange={(event) => setForm({ ...form, name: event.target.value })}
-        />
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="Importe"
-          value={form.amount}
-          onChange={(event) => setForm({ ...form, amount: event.target.value })}
-        />
-        <Input
-          type="date"
-          value={form.nextChargeDate}
-          onChange={(event) =>
-            setForm({ ...form, nextChargeDate: event.target.value })
-          }
-          aria-label="Fecha del próximo cobro"
-        />
-        <Select
-          value={form.frequency}
-          onChange={(event) =>
-            setForm({ ...form, frequency: event.target.value as Frequency })
-          }
-        >
-          {Object.entries(frequencyLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <Select
-          value={form.accountId}
-          onChange={(event) =>
-            setForm({ ...form, accountId: event.target.value })
-          }
-        >
-          <option value="">Cuenta opcional</option>
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={form.categoryId}
-          onChange={(event) =>
-            setForm({ ...form, categoryId: event.target.value })
-          }
-        >
-          <option value="">Categoría opcional</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={form.status}
-          onChange={(event) =>
-            setForm({ ...form, status: event.target.value as Status })
-          }
-        >
-          {Object.entries(statusLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <Textarea
-        placeholder="Descripción opcional"
-        value={form.description}
-        onChange={(event) =>
-          setForm({ ...form, description: event.target.value })
-        }
-      />
-    </div>
-  );
+  return <div className="grid gap-4 sm:grid-cols-2">
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground sm:col-span-2">Nombre
+      <Input required maxLength={200} placeholder="Por ejemplo, seguro del coche" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Importe previsto (€)
+      <Input required type="number" min="0.01" step="0.01" placeholder="0,00" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} />
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Fecha del próximo cobro
+      <Input required type="date" value={form.nextChargeDate.slice(0, 10)} onChange={(event) => setForm({ ...form, nextChargeDate: event.target.value })} />
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Frecuencia
+      <Select value={form.frequency} onChange={(event) => setForm({ ...form, frequency: event.target.value as PaymentFrequency })}>
+        {Object.entries(paymentFrequencyLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </Select>
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Estado
+      <Select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as Status })}>
+        {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </Select>
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Cuenta prevista
+      <Select value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}>
+        <option value="">Sin cuenta</option>
+        {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+      </Select>
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">Categoría
+      <Select value={form.categoryId} onChange={(event) => setForm({ ...form, categoryId: event.target.value })}>
+        <option value="">Sin categoría</option>
+        {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+      </Select>
+    </label>
+    <label className="grid gap-1.5 text-xs font-medium text-muted-foreground sm:col-span-2">Descripción opcional
+      <Textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+    </label>
+  </div>;
 }
 
 function payloadFromForm(form: PaymentForm) {
   return {
-    name: form.name,
-    amount: Number(form.amount || 0),
-    nextChargeDate: form.nextChargeDate,
-    frequency: form.frequency,
-    accountId: form.accountId || null,
-    categoryId: form.categoryId || null,
-    description: form.description || null,
-    status: form.status,
+    name: form.name, amount: Number(form.amount || 0), nextChargeDate: form.nextChargeDate,
+    frequency: form.frequency, accountId: form.accountId || null, categoryId: form.categoryId || null,
+    description: form.description || null, status: form.status,
   };
 }
 
-function statusTone(status: Status) {
-  if (status === "ACTIVE") return "success" as const;
-  if (status === "PAUSED") return "warning" as const;
-  return "neutral" as const;
-}
-
-function daysLabel(days: number | null) {
-  if (days === null) return "Sin próxima fecha";
-  if (days === 0) return "Hoy";
-  if (days === 1) return "Falta 1 día";
-  return `Faltan ${days} días`;
-}
-
-export function RecurringPaymentsManager({
-  initialPayments,
-  accounts,
-  categories,
-}: {
+export function RecurringPaymentsManager({ initialPayments, accounts, categories }: {
   initialPayments: PaymentRow[];
   accounts: AccountOption[];
   categories: CategoryOption[];
@@ -230,251 +105,94 @@ export function RecurringPaymentsManager({
   const [editForm, setEditForm] = useState<PaymentForm>(emptyForm);
   const [message, setMessage] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
+  const createDetails = useRef<HTMLDetailsElement>(null);
+  useDialogFocus(editingId !== null, () => { if (!savingId) setEditingId(null); });
 
-  async function createPayment() {
+  async function savePayment(id: string | null, next: PaymentForm | { status: Status }) {
     setMessage("");
-    setSavingId("new");
-    const response = await request("/api/recurring-payments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payloadFromForm(form)),
-    });
-    const payload = await response.json().catch(() => ({}));
-    setSavingId(null);
-    if (!response.ok || !payload.payment) {
-      setMessage(payload.error ?? "No se pudo crear el pago recurrente.");
-      return;
-    }
-    window.location.reload();
-  }
-
-  async function updatePayment(
-    id: string,
-    nextForm: Partial<PaymentForm> | PaymentForm,
-  ) {
-    setMessage("");
-    setSavingId(id);
-    const response = await request(`/api/recurring-payments/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        "name" in nextForm
-          ? payloadFromForm(nextForm as PaymentForm)
-          : nextForm,
-      ),
-    });
-    const payload = await response.json().catch(() => ({}));
-    setSavingId(null);
-    if (!response.ok || !payload.payment) {
-      setMessage(payload.error ?? "No se pudo actualizar el pago recurrente.");
-      return;
-    }
-    window.location.reload();
+    setSavingId(id ?? "new");
+    try {
+      const response = await request(id ? `/api/recurring-payments/${id}` : "/api/recurring-payments", {
+        method: id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify("name" in next ? payloadFromForm(next) : next),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.payment) {
+        setMessage(payload.error ?? "No se pudo guardar el pago recurrente.");
+        return;
+      }
+      const saved = payload.payment as SavedPayment;
+      const row: PaymentRow = {
+        ...saved, amount: Number(saved.amount), accountId: saved.accountId ?? "", categoryId: saved.categoryId ?? "",
+        accountName: saved.account?.name ?? null, categoryName: saved.category?.name ?? null,
+        description: saved.description ?? "", projectedDate: null, daysUntil: null,
+      };
+      setPayments((current) => id ? current.map((item) => item.id === id ? row : item) : [...current, row]);
+      setEditingId(null);
+      if (!id) {
+        setForm(emptyForm);
+        if (createDetails.current) createDetails.current.open = false;
+      }
+    } catch {
+      setMessage("No se ha podido conectar. Comprueba tu conexión e inténtalo de nuevo.");
+    } finally { setSavingId(null); }
   }
 
   async function deletePayment(payment: PaymentRow) {
-    const confirmed = window.confirm(
-      `¿Eliminar definitivamente ${payment.name}? Esta acción no creará ni borrará movimientos reales.`,
-    );
-    if (!confirmed) return;
+    if (!window.confirm(`¿Eliminar definitivamente ${payment.name}? Esta acción no creará ni borrará movimientos reales.`)) return;
+    setMessage("");
     setSavingId(payment.id);
-    const response = await request(`/api/recurring-payments/${payment.id}`, {
-      method: "DELETE",
-    });
-    setSavingId(null);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      setMessage(payload.error ?? "No se pudo eliminar el pago recurrente.");
-      return;
-    }
-    setPayments((current) => current.filter((item) => item.id !== payment.id));
+    try {
+      const response = await request(`/api/recurring-payments/${payment.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        setMessage(payload.error ?? "No se pudo eliminar el pago recurrente.");
+        return;
+      }
+      setPayments((current) => current.filter((item) => item.id !== payment.id));
+    } catch {
+      setMessage("No se ha podido eliminar. Comprueba tu conexión e inténtalo de nuevo.");
+    } finally { setSavingId(null); }
   }
 
-  return (
-    <div className="space-y-5">
-      <details
-        open={initialPayments.length === 0}
-        className="border-b border-border pb-6"
-      >
-        <summary className="w-fit cursor-pointer text-sm font-medium text-accent">
-          Añadir pago recurrente
-        </summary>
-        <div className="mb-4">
-          <p className="text-sm text-muted-foreground">
-            Solo se usa para planificación. No crea gastos reales.
-          </p>
+  return <div className="mx-auto w-full max-w-4xl space-y-6">
+    <details ref={createDetails} className="payment-create group">
+      <summary className="ml-auto flex min-h-10 w-fit cursor-pointer list-none items-center gap-2 rounded-lg border border-accent/25 bg-accent/10 px-3 text-sm font-medium text-accent transition-colors hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&::-webkit-details-marker]:hidden">
+        <Plus className="h-4 w-4" />Añadir pago recurrente
+      </summary>
+      <form className="mx-auto mt-5 max-w-xl space-y-4" onSubmit={(event) => { event.preventDefault(); void savePayment(null, form); }}>
+        <p className="text-xs text-muted-foreground">Solo planificación. No crea gastos reales.</p>
+        <FormFields form={form} setForm={setForm} accounts={accounts} categories={categories} />
+        <div className="flex justify-end"><Button type="submit" disabled={savingId !== null}>
+          {savingId === "new" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}Crear pago
+        </Button></div>
+      </form>
+    </details>
+    {message && !editingId && <p role="alert" className="border-l-2 border-danger pl-3 text-sm text-danger">{message}</p>}
+    <RecurringPaymentList payments={payments} savingId={savingId}
+      onEdit={(payment) => {
+        setMessage(""); setEditingId(payment.id);
+        setEditForm({ ...payment, amount: String(payment.amount), nextChargeDate: payment.nextChargeDate.slice(0, 10) });
+      }}
+      onStatus={(payment, status) => { void savePayment(payment.id, { status }); }}
+      onDelete={(payment) => { void deletePayment(payment); }}
+    />
+    {editingId && <div role="dialog" aria-modal="true" aria-labelledby="edit-payment-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-lg border border-border bg-card p-5 shadow-xl sm:p-6">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 id="edit-payment-title" className="text-lg font-semibold">Editar pago recurrente</h2>
+          <Button size="icon" variant="ghost" title="Cerrar edición" disabled={savingId !== null} onClick={() => setEditingId(null)}><X className="h-5 w-5" /></Button>
         </div>
-        <FormFields
-          form={form}
-          setForm={setForm}
-          accounts={accounts}
-          categories={categories}
-        />
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            onClick={() => void createPayment()}
-            disabled={savingId === "new"}
-          >
-            <Plus className="h-4 w-4" /> Crear pago
-          </Button>
-        </div>
-      </details>
-      {message ? <p role="alert" className="border-l-2 border-danger pl-3 text-sm text-danger">{message}</p> : null}
-
-      <section>
-        <div className="mb-5">
-          <h2 className="text-base font-semibold text-card-foreground">
-            Pagos configurados
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {payments.length} pagos recurrentes guardados.
-          </p>
-        </div>
-        {payments.length === 0 ? (
-          <div className="m-5 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-            No tienes pagos recurrentes configurados.
+        <form className="space-y-5" onSubmit={(event) => { event.preventDefault(); void savePayment(editingId, editForm); }}>
+          <FormFields form={editForm} setForm={setEditForm} accounts={accounts} categories={categories} />
+          {message && <p role="alert" className="text-sm text-danger">{message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" disabled={savingId !== null} onClick={() => setEditingId(null)}>Cancelar</Button>
+            <Button type="submit" disabled={savingId !== null}>{savingId === editingId ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}Guardar</Button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {payments.map((payment) => {
-              const isEditing = editingId === payment.id;
-              return (
-                <article key={payment.id} className="surface p-5 sm:p-6">
-                  {isEditing ? (
-                    <div className="space-y-4">
-                      <FormFields
-                        form={editForm}
-                        setForm={setEditForm}
-                        accounts={accounts}
-                        categories={categories}
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() =>
-                            void updatePayment(payment.id, editForm)
-                          }
-                          disabled={savingId === payment.id}
-                        >
-                          <Save className="h-4 w-4" /> Guardar
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingId(null)}
-                        >
-                          <X className="h-4 w-4" /> Cancelar
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold text-card-foreground">
-                            {payment.name}
-                          </h3>
-                          <Badge tone={statusTone(payment.status)}>
-                            {statusLabels[payment.status]}
-                          </Badge>
-                          <Badge>{frequencyLabels[payment.frequency]}</Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          <strong className="mr-3 text-xl font-semibold tabular-nums text-foreground">
-                            {formatCurrency(payment.amount)}
-                          </strong>{" "}
-                          {payment.projectedDate
-                            ? formatDate(payment.projectedDate)
-                            : "Sin próxima fecha"}{" "}
-                          · {daysLabel(payment.daysUntil)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {payment.accountName ?? "Sin cuenta"}
-                          {payment.categoryName
-                            ? ` · ${payment.categoryName}`
-                            : ""}
-                          {payment.description
-                            ? ` · ${payment.description}`
-                            : ""}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            setEditingId(payment.id);
-                            setEditForm(toForm(payment));
-                          }}
-                        >
-                          Editar
-                        </Button>
-                        {payment.status === "ACTIVE" ? (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() =>
-                              void updatePayment(payment.id, {
-                                status: "PAUSED",
-                              })
-                            }
-                            disabled={savingId === payment.id}
-                          >
-                            <PauseCircle className="h-4 w-4" /> Pausar
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() =>
-                              void updatePayment(payment.id, {
-                                status: "ACTIVE",
-                              })
-                            }
-                            disabled={savingId === payment.id}
-                          >
-                            <PlayCircle className="h-4 w-4" /> Reactivar
-                          </Button>
-                        )}
-                        {payment.status !== "CANCELED" ? (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() =>
-                              void updatePayment(payment.id, {
-                                status: "CANCELED",
-                              })
-                            }
-                            disabled={savingId === payment.id}
-                          >
-                            <Archive className="h-4 w-4" /> Cancelar
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void deletePayment(payment)}
-                          disabled={savingId === payment.id}
-                        >
-                          <Trash2 className="h-4 w-4" /> Eliminar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </div>
-  );
+        </form>
+      </div>
+    </div>}
+  </div>;
 }

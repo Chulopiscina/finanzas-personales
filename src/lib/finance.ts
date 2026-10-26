@@ -2,6 +2,7 @@ import { Prisma, AccountType, BudgetBlockType, PlanningGoalType, PlanningStatus,
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
+import { madridToday } from "@/lib/recurring-calendar";
 import { accountingType, grossExpense, income, isRefund, refundShares, ledgerTotals, spendingEntries, savingsContribution } from "@/lib/ledger";
 import { addMoney, cents, euros, sumMoney } from "@/lib/money";
 import { getPlanningGoalProgress, planningRelations } from "@/lib/planning";
@@ -648,6 +649,12 @@ export async function getDashboardData(userId: string, accountId?: string | null
     recommendations: recommendations(categories, monthly, uncategorizedTransactions.length),
     recentImports: recentImports.map((item) => ({ id: item.id, fileName: item.fileName, accountName: item.account.name, createdAt: item.createdAt.toISOString(), insertedRows: item.insertedRows })),
     upcomingPayments,
+    recurringToday: madridToday(),
+    recurringSchedule: recurringPayments.map((payment) => ({
+      id: payment.id, name: payment.name, amount: toNumber(payment.amount),
+      nextChargeDate: payment.nextChargeDate.toISOString(), frequency: payment.frequency, status: payment.status,
+      accountName: payment.account?.name ?? null, categoryName: payment.category?.name ?? null,
+    })),
     recentTransactions: transactions.slice(0, 8).map((tx) => ({ id: tx.id, date: tx.date.toISOString(), concept: tx.cleanDescription || tx.concept, amount: toNumber(tx.amount), type: accountingType(tx), category: tx.category?.name ?? "Sin categoría", account: tx.account?.name ?? "Cuenta", isReimbursement: isReimbursement(tx), linkedReimbursementAmount: allocations.get(tx.id) ?? 0 }))
   };
 }

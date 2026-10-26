@@ -5,6 +5,8 @@ import { PlanningNavigation } from "@/components/planning-navigation";
 import { toNumber } from "@/lib/finance";
 import { daysUntil, nextRecurringPaymentDate } from "@/lib/recurring-payments";
 import { prisma } from "@/lib/prisma";
+import Link from "next/link";
+import { CalendarDays } from "lucide-react";
 
 export default async function RecurringPaymentsPage() {
   const session = await getSessionUser();
@@ -41,7 +43,7 @@ export default async function RecurringPaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Pagos recurrentes" description="Anticípate a tus próximos pagos. Previsiones, no gastos reales." />
+      <PageHeader title="Pagos recurrentes" description="Anticípate a tus próximos pagos. Previsiones, no gastos reales." actions={<Link href="/dashboard#pagos-recurrentes" className="action-link"><CalendarDays className="h-4 w-4" />Ver calendario</Link>} />
       <PlanningNavigation />
       <RecurringPaymentsManager initialPayments={preparedPayments} accounts={accounts} categories={categories} />
     </div>

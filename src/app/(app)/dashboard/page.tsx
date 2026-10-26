@@ -112,6 +112,11 @@ export default async function DashboardPage({ searchParams }: Props) {
 
       <DashboardMetrics data={data} />
 
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Tu planificación</h2>
+        <DashboardPlanning data={data} />
+      </section>
+
       <section className="space-y-4" aria-label="Análisis financiero">
         <div className="flex items-end justify-between">
           <h2 className="text-lg font-semibold">Gráficos</h2>
@@ -124,11 +129,6 @@ export default async function DashboardPage({ searchParams }: Props) {
           monthly={data.charts.monthly}
           comparison={data.charts.comparison}
         />
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Tu planificación</h2>
-        <DashboardPlanning data={data} />
       </section>
 
       {planningGoals.length > 0 ? (

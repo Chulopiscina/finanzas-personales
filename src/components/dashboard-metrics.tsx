@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { DashboardData, DashboardDetailKey } from "@/lib/finance";
 import { cn } from "@/lib/utils";
+import { RecurringPaymentsWidget } from "@/components/recurring-payments-widget";
 
 type CardTone = "green" | "red" | "blue" | "gray" | "purple" | "orange";
 type CardIcon =
@@ -490,75 +491,6 @@ function PreparedFeatureCard({
   );
 }
 
-function paymentDaysLabel(days: number) {
-  if (days === 0) return "Hoy";
-  if (days === 1) return "Falta 1 día";
-  return `Faltan ${days} días`;
-}
-
-function UpcomingPaymentsCard({
-  payments,
-}: {
-  payments: DashboardData["upcomingPayments"];
-}) {
-  const hasPayments = payments.length > 0;
-
-  return (
-    <section className="surface p-5 sm:p-6">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
-            <ReceiptText className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Próximos pagos
-            </p>
-            <p className="mt-1 text-lg font-semibold text-card-foreground">
-              {hasPayments
-                ? `${payments.length} previstos`
-                : "No hay pagos recurrentes"}
-            </p>
-          </div>
-        </div>
-        <Link href="/planning/recurring-payments" className={actionLinkClass}>
-          Añadir pago recurrente
-        </Link>
-      </div>
-      {hasPayments ? (
-        <div className="mt-5 grid gap-3 lg:grid-cols-3">
-          {payments.map((payment) => (
-            <article key={payment.id} className="border-t border-border py-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-card-foreground">
-                    {payment.name}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {formatDate(payment.date)} -{" "}
-                    {paymentDaysLabel(payment.daysUntil)}
-                  </p>
-                </div>
-                <span className="whitespace-nowrap text-sm font-semibold text-card-foreground">
-                  {formatCurrency(payment.amount)}
-                </span>
-              </div>
-              <p className="mt-3 truncate text-xs text-muted-foreground">
-                {payment.accountName}
-                {payment.categoryName ? ` - ${payment.categoryName}` : ""}
-              </p>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-5 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
-          No tienes pagos recurrentes configurados.
-        </div>
-      )}
-    </section>
-  );
-}
-
 export function DashboardMetrics({ data }: { data: DashboardData }) {
   const [detailKey, setDetailKey] = useState<DashboardDetailKey | null>(null);
   const resultPositive = data.metrics.periodResult >= 0;
@@ -929,12 +861,12 @@ export function DashboardMetrics({ data }: { data: DashboardData }) {
 
 export function DashboardPlanning({ data }: { data: DashboardData }) {
   return (
-    <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-2">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]">
+      <div className="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-1">
         <BudgetDashboardCard budget={data.budget} />
         <SavingsGoalDashboardCard savingsGoal={data.savingsGoal} />
       </div>
-      <UpcomingPaymentsCard payments={data.upcomingPayments} />
+      <RecurringPaymentsWidget payments={data.recurringSchedule} today={data.recurringToday} />
     </div>
   );
 }

@@ -215,6 +215,105 @@ textarea {
 .mobile-dock {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
+.payment-menu-item {
+  @apply flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-sm transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50;
+}
+.payment-menu-item svg {
+  @apply h-4 w-4 shrink-0;
+}
+.payment-calendar-month {
+  animation: page-arrive 180ms ease-out;
+}
+.payment-actions[open] {
+  z-index: 25;
+}
+.payment-schedule-card:has(.payment-actions[open]) {
+  position: relative;
+  z-index: 25;
+}
+.recurring-widget-inner {
+  container-type: inline-size;
+}
+.recurring-widget {
+  background: hsl(var(--card));
+}
+.dark .recurring-widget {
+  background: #0d1715;
+  border-color: #254039;
+}
+.recurring-month-arrow {
+  @apply flex h-9 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent;
+}
+.recurring-day {
+  display: flex;
+  height: 54px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  background: hsl(var(--muted) / 0.45);
+  border-color: hsl(var(--border) / 0.5);
+}
+.recurring-day-number {
+  font-size: 12px;
+  line-height: 16px;
+}
+.recurring-calendar-logo {
+  width: 26px;
+  height: 26px;
+}
+.recurring-day-logo {
+  min-height: 26px;
+}
+.dark .recurring-day {
+  background: #16231f;
+  border-color: #22342e;
+  box-shadow: inset 0 1px 0 #ffffff03;
+}
+.recurring-day:not(:disabled):hover {
+  border-color: hsl(var(--accent) / 0.45);
+  background: hsl(var(--accent) / 0.08);
+}
+.recurring-day-today .recurring-day-number {
+  color: hsl(var(--accent));
+  font-weight: 600;
+}
+.recurring-day-today,
+.dark .recurring-day-today {
+  border-color: hsl(var(--accent) / 0.4);
+}
+.recurring-day-selected,
+.dark .recurring-day-selected {
+  border-color: hsl(var(--accent) / 0.8);
+  background: hsl(var(--accent) / 0.12);
+}
+.recurring-logo-count {
+  position: absolute;
+  right: -6px;
+  bottom: -2px;
+  border-radius: 999px;
+  background: hsl(var(--card));
+  padding: 1px 3px;
+  color: hsl(var(--foreground));
+  font-size: 9px;
+  line-height: 11px;
+}
+.recurring-payment-row {
+  background: hsl(var(--muted) / 0.4);
+}
+.dark .recurring-payment-row {
+  background: #17211f;
+}
+.recurring-payment-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+@container (min-width: 340px) {
+  .recurring-day { height: 58px; padding: 5px 0; }
+  .recurring-day-number { font-size: 13px; }
+  .recurring-calendar-logo { width: 30px; height: 30px; }
+  .recurring-day-logo { min-height: 30px; }
+}
 .movement-mobile button[title="Acciones"] {
   min-width: 40px;
   min-height: 40px;

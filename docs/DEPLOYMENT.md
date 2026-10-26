@@ -1,5 +1,32 @@
 # Despliegue seguro y migraciones pendientes
 
+## Publicacion del widget aprobado (26/10/2026)
+
+Proyecto: `Chulopiscina/finanzas-personales`, rama de produccion `main`.
+Vercel: equipo `oriol2`, proyecto `finanzas-personales`.
+URL publica: https://finanzas-personales-lime-two.vercel.app/dashboard
+
+Antes de publicar se ha comprobado Supabase produccion mediante Session pooler,
+rol `postgres`, esquema `app`: **17/17 migraciones registradas, cero pendientes**,
+sin ejecutar SQL de escritura. Los registros historicos siguientes se conservan
+como referencia; sus pendientes antiguos ya estan resueltos.
+
+Esta entrega no modifica el esquema, migraciones, variables ni consultas
+financieras. Serializa para el widget los pagos que ya obtiene la consulta del
+Dashboard, conservando los filtros de usuario y cuenta. No usa datos de demo
+en runtime; las fixtures de las pruebas solo se ejecutan en PostgreSQL local
+aislado. Los logos se sirven desde archivos publicos locales.
+
+Publicacion: pruebas, lint, typecheck y build correctos; commit y push a `main`;
+verificar el SHA y estado Ready en Vercel, la URL publica con una cuenta real,
+los controles del widget y los Runtime Logs. El build sigue siendo
+`prisma generate && next build`, sin migraciones ni seed automaticos.
+
+No activar `SHORTCUTS_ENABLED` durante esta publicacion. Los vencimientos sin
+confirmacion siguen como "Sin confirmar": una fecha pasada no demuestra cobro.
+
+## Registro historico
+
 ## Estado vigente (18/10/2026)
 
 Producción se publicó en `73a5682` (Vercel Ready). Antes de publicar se contrastaron las estructuras y se reconciliaron las quince migraciones mediante Session pooler, esquema `app`; ninguna quedó incompleta. Atajos sigue desactivado. Esta nueva entrega es exclusivamente local y no ha conectado a producción.

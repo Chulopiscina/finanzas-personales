@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { CalendarClock, Goal, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,8 +18,18 @@ const links = [
 
 export function PlanningNavigation() {
   const path = usePathname();
+  const navigation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const container = navigation.current;
+    const active = container?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!container || !active) return;
+    const link = active.getBoundingClientRect();
+    const bounds = container.getBoundingClientRect();
+    container.scrollLeft += link.left - bounds.left - (container.clientWidth - link.width) / 2;
+  }, [path]);
   return (
     <nav
+      ref={navigation}
       aria-label="Secciones de planificación"
       className="flex gap-1 overflow-x-auto border-b border-border"
     >
